@@ -5447,9 +5447,9 @@ signal_desc (int signum)
 //#define XDOMAIN_CHECKS_IN_WBARRIER
 
 #ifndef HEAVY_STATISTICS
-#define MANAGED_ALLOCATION
+//#define MANAGED_ALLOCATION
 #ifndef XDOMAIN_CHECKS_IN_WBARRIER
-#define MANAGED_WBARRIER
+//#define MANAGED_WBARRIER
 #endif
 #endif
 
