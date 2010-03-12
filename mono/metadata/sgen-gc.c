@@ -4558,6 +4558,8 @@ mono_gc_try_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	return NULL;
 }
 
+#define DISABLE_CRITICAL_REGION	1
+
 void*
 mono_gc_alloc_obj (MonoVTable *vtable, size_t size)
 {
