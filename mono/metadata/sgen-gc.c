@@ -194,7 +194,7 @@ static gboolean do_scan_starts_check = FALSE;
  * Turning on heavy statistics will turn off the managed allocator and
  * the managed write barrier.
  */
-//#define HEAVY_STATISTICS
+#define HEAVY_STATISTICS
 
 #ifdef HEAVY_STATISTICS
 #define HEAVY_STAT(x)	x
