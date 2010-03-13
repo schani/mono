@@ -579,14 +579,13 @@ static int num_minor_gcs = 0;
 static int num_major_gcs = 0;
 
 /* This is the size of the nursery. */
-#define DEFAULT_NURSERY_SIZE (1024*1024)
-/* The number of trailing 0 bits in DEFAULT_NURSERY_SIZE */
-#define DEFAULT_NURSERY_BITS 20
+#define DEFAULT_NURSERY_SEMISPACE_SIZE (1024*1024)
+/* The number of trailing 0 bits in 2 * DEFAULT_NURSERY_SEMISPACE_SIZE */
+#define DEFAULT_NURSERY_BITS 21
 #define MAJOR_SECTION_SIZE	(128*1024)
 #define BLOCK_FOR_OBJECT(o)		((Block*)(((mword)(o)) & ~(MAJOR_SECTION_SIZE - 1)))
 #define MAJOR_SECTION_FOR_OBJECT(o)	((GCMemSection*)BLOCK_FOR_OBJECT ((o)))
-#define MIN_MINOR_COLLECTION_SECTION_ALLOWANCE	(DEFAULT_NURSERY_SIZE * 3 / MAJOR_SECTION_SIZE)
-#define DEFAULT_LOS_COLLECTION_TARGET (DEFAULT_NURSERY_SIZE * 2)
+#define MIN_MINOR_COLLECTION_SECTION_ALLOWANCE	(DEFAULT_NURSERY_SEMISPACE_SIZE * 3 / MAJOR_SECTION_SIZE)
 /* to quickly find the head of an object pinned by a conservative address
  * we keep track of the objects allocated for each SCAN_START_SIZE memory
  * chunk in the nursery or other memory sections. Larger values have less
@@ -615,6 +614,7 @@ static mword memory_pressure = 0;
 
 static GCMemSection *section_list = NULL;
 static GCMemSection *nursery_section = NULL;
+static GCMemSection *inactive_nursery_section = NULL;
 static mword lowest_heap_address = ~(mword)0;
 static mword highest_heap_address = 0;
 
@@ -2729,13 +2729,12 @@ static void
 alloc_nursery (void)
 {
 	char *data;
-	Fragment *frag;
 	size_t alloc_size;
 
 	if (nursery_section)
 		return;
 
-	alloc_size = DEFAULT_NURSERY_SIZE;
+	alloc_size = 2 * DEFAULT_NURSERY_SEMISPACE_SIZE;
 	DEBUG (2, fprintf (gc_debug_file, "Allocating nursery size: %zd\n", alloc_size));
 #ifdef ALIGN_NURSERY
 	data = get_os_memory_aligned (alloc_size, TRUE);
@@ -2747,15 +2746,10 @@ alloc_nursery (void)
 	total_alloc += alloc_size;
 	DEBUG (4, fprintf (gc_debug_file, "Expanding nursery size (%p-%p): %zd, total: %zd\n", data, data + alloc_size, alloc_size, total_alloc));
 
-	nursery_section = add_section (NULL, data, DEFAULT_NURSERY_SIZE, MEMORY_ROLE_GEN0);
+	nursery_section = add_section (NULL, data, DEFAULT_NURSERY_SEMISPACE_SIZE, MEMORY_ROLE_GEN0);
+	inactive_nursery_section = add_section (NULL, data + DEFAULT_NURSERY_SEMISPACE_SIZE, DEFAULT_NURSERY_SEMISPACE_SIZE, MEMORY_ROLE_GEN0);
 
-	/* Setup the single first large fragment */
-	frag = alloc_fragment ();
-	frag->fragment_start = nursery_section->data;
-	frag->fragment_limit = nursery_section->data;
-	frag->fragment_end = nursery_section->end_data;
 	nursery_frag_real_end = nursery_section->end_data;
-	/* FIXME: frag here is lost */
 }
 
 static void
@@ -3069,7 +3063,6 @@ build_nursery_fragments (int start_pin, int end_pin)
 	}
 	nursery_last_pinned_end = frag_start;
 	frag_end = nursery_section->end_data;
-	g_assert (nursery_section->end_data == nursery_real_end);
 	frag_size = frag_end - frag_start;
 	if (frag_size)
 		add_nursery_frag (frag_size, frag_start, frag_end);
