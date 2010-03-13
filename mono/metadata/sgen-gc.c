@@ -600,7 +600,6 @@ static int num_major_gcs = 0;
 #define FREELIST_PAGESIZE 4096
 
 static mword pagesize = 4096;
-static mword nursery_size = DEFAULT_NURSERY_SIZE;
 static int degraded_mode = 0;
 
 static int minor_collection_section_allowance = MIN_MINOR_COLLECTION_SECTION_ALLOWANCE;
@@ -2687,6 +2686,40 @@ get_os_memory_aligned (mword size, gboolean activate)
 	return aligned;
 }
 
+static GCMemSection*
+add_section (GCMemSection *section, char *data, int size, int role)
+{
+	int scan_starts;
+
+	if (!section)
+		section = get_internal_mem (SIZEOF_GC_MEM_SECTION, INTERNAL_MEM_SECTION);
+
+	if (data) {
+		section->data = data;
+	} else {
+		section->data = (char*)section + SIZEOF_GC_MEM_SECTION;
+		size -= SIZEOF_GC_MEM_SECTION;
+	}
+	g_assert (!((mword)section->data & 7));
+
+	section->next_data = section->data;
+	section->size = size;
+	section->end_data = section->data + section->size;
+	scan_starts = (section->size + SCAN_START_SIZE - 1) / SCAN_START_SIZE;
+	section->scan_starts = get_internal_mem (sizeof (char*) * scan_starts, INTERNAL_MEM_SCAN_STARTS);
+	section->num_scan_start = scan_starts;
+	section->block.role = role;
+	section->is_to_space = FALSE;
+
+	/* add to the section list */
+	section->block.next = section_list;
+	section_list = section;
+
+	UPDATE_HEAP_BOUNDARIES (section->data, section->end_data);
+
+	return section;
+}
+
 /*
  * Allocate and setup the data structures needed to be able to allocate objects
  * in the nursery. The nursery is stored in nursery_section.
@@ -2694,55 +2727,34 @@ get_os_memory_aligned (mword size, gboolean activate)
 static void
 alloc_nursery (void)
 {
-	GCMemSection *section;
 	char *data;
-	int scan_starts;
 	Fragment *frag;
-	int alloc_size;
+	size_t alloc_size;
 
 	if (nursery_section)
 		return;
-	DEBUG (2, fprintf (gc_debug_file, "Allocating nursery size: %zd\n", nursery_size));
-	/* later we will alloc a larger area for the nursery but only activate
-	 * what we need. The rest will be used as expansion if we have too many pinned
-	 * objects in the existing nursery.
-	 */
-	/* FIXME: handle OOM */
-	section = get_internal_mem (SIZEOF_GC_MEM_SECTION, INTERNAL_MEM_SECTION);
 
-	g_assert (nursery_size == DEFAULT_NURSERY_SIZE);
-	alloc_size = nursery_size;
+	alloc_size = DEFAULT_NURSERY_SIZE;
+	DEBUG (2, fprintf (gc_debug_file, "Allocating nursery size: %zd\n", alloc_size));
 #ifdef ALIGN_NURSERY
 	data = get_os_memory_aligned (alloc_size, TRUE);
 #else
 	data = get_os_memory (alloc_size, TRUE);
 #endif
 	nursery_start = data;
-	nursery_real_end = nursery_start + nursery_size;
-	UPDATE_HEAP_BOUNDARIES (nursery_start, nursery_real_end);
+	nursery_real_end = nursery_start + alloc_size;
 	nursery_next = nursery_start;
 	total_alloc += alloc_size;
-	DEBUG (4, fprintf (gc_debug_file, "Expanding nursery size (%p-%p): %zd, total: %zd\n", data, data + alloc_size, nursery_size, total_alloc));
-	section->data = section->next_data = data;
-	section->size = alloc_size;
-	section->end_data = nursery_real_end;
-	scan_starts = (alloc_size + SCAN_START_SIZE - 1) / SCAN_START_SIZE;
-	section->scan_starts = get_internal_mem (sizeof (char*) * scan_starts, INTERNAL_MEM_SCAN_STARTS);
-	section->num_scan_start = scan_starts;
-	section->block.role = MEMORY_ROLE_GEN0;
+	DEBUG (4, fprintf (gc_debug_file, "Expanding nursery size (%p-%p): %zd, total: %zd\n", data, data + alloc_size, alloc_size, total_alloc));
 
-	/* add to the section list */
-	section->block.next = section_list;
-	section_list = section;
-
-	nursery_section = section;
+	nursery_section = add_section (NULL, data, DEFAULT_NURSERY_SIZE, MEMORY_ROLE_GEN0);
 
 	/* Setup the single first large fragment */
 	frag = alloc_fragment ();
-	frag->fragment_start = nursery_start;
-	frag->fragment_limit = nursery_start;
-	frag->fragment_end = nursery_real_end;
-	nursery_frag_real_end = nursery_real_end;
+	frag->fragment_start = nursery_section->data;
+	frag->fragment_limit = nursery_section->data;
+	frag->fragment_end = nursery_section->end_data;
+	nursery_frag_real_end = nursery_section->end_data;
 	/* FIXME: frag here is lost */
 }
 
@@ -3724,25 +3736,14 @@ static GCMemSection*
 alloc_major_section (void)
 {
 	GCMemSection *section;
-	int scan_starts;
 
 	section = get_os_memory_aligned (MAJOR_SECTION_SIZE, TRUE);
-	section->next_data = section->data = (char*)section + SIZEOF_GC_MEM_SECTION;
-	g_assert (!((mword)section->data & 7));
-	section->size = MAJOR_SECTION_SIZE - SIZEOF_GC_MEM_SECTION;
-	section->end_data = section->data + section->size;
-	UPDATE_HEAP_BOUNDARIES (section->data, section->end_data);
 	total_alloc += section->size;
-	DEBUG (3, fprintf (gc_debug_file, "New major heap section: (%p-%p), total: %zd\n", section->data, section->end_data, total_alloc));
-	scan_starts = (section->size + SCAN_START_SIZE - 1) / SCAN_START_SIZE;
-	section->scan_starts = get_internal_mem (sizeof (char*) * scan_starts, INTERNAL_MEM_SCAN_STARTS);
-	section->num_scan_start = scan_starts;
-	section->block.role = MEMORY_ROLE_GEN1;
-	section->is_to_space = TRUE;
 
-	/* add to the section list */
-	section->block.next = section_list;
-	section_list = section;
+	add_section (section, NULL, MAJOR_SECTION_SIZE, MEMORY_ROLE_GEN1);
+
+	DEBUG (3, fprintf (gc_debug_file, "New major heap section: (%p-%p), total: %zd\n", section->data, section->end_data, total_alloc));
+	section->is_to_space = TRUE;
 
 	++num_major_sections;
 
