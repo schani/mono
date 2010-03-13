@@ -2782,7 +2782,7 @@ scan_old_generation (char *start, char* end)
 	char *p;
 
 	for (section = section_list; section; section = section->block.next) {
-		if (section == nursery_section)
+		if (section->block.role != MEMORY_ROLE_GEN1)
 			continue;
 		DEBUG (2, fprintf (gc_debug_file, "Scan of old section: %p-%p, size: %d\n", section->data, section->next_data, (int)(section->next_data - section->data)));
 		/* we have to deal with zeroed holes in old generation (truncated strings ...) */
@@ -3227,7 +3227,7 @@ dump_heap (const char *type, int num, const char *reason)
 	dump_section (nursery_section, "nursery");
 
 	for (section = section_list; section; section = section->block.next) {
-		if (section != nursery_section)
+		if (section->block.role == MEMORY_ROLE_GEN1)
 			dump_section (section, "old");
 	}
 
@@ -3661,7 +3661,7 @@ major_collection (const char *reason)
 	prev_section = NULL;
 	for (section = section_list; section;) {
 		/* to_space doesn't need handling here and the nursery is special */
-		if (section->is_to_space || section == nursery_section) {
+		if (section->is_to_space || section->block.role == MEMORY_ROLE_GEN0) {
 			if (section->is_to_space)
 				section->is_to_space = FALSE;
 			prev_section = section;
@@ -4324,7 +4324,7 @@ alloc_degraded (MonoVTable *vtable, size_t size)
 	g_assert (size <= MAX_SMALL_OBJ_SIZE);
 	HEAVY_STAT (++stat_objects_alloced_degraded);
 	for (section = section_list; section; section = section->block.next) {
-		if (section != nursery_section && (section->end_data - section->next_data) >= size) {
+		if (section->block.role == MEMORY_ROLE_GEN1 && (section->end_data - section->next_data) >= size) {
 			p = (void**)section->next_data;
 			break;
 		}
