@@ -863,6 +863,8 @@ static char *to_space_bumper = NULL;
 static char *to_space_top = NULL;
 static GCMemSection *to_space_section = NULL;
 
+static gboolean next_nursery_collection_evacuates_to_major = FALSE;
+
 /* objects bigger then this go into the large object space */
 #define MAX_SMALL_OBJ_SIZE MAX_FREELIST_SIZE
 
@@ -899,6 +901,8 @@ static void* get_os_memory             (size_t size, int activate);
 static void  free_os_memory            (void *addr, size_t size);
 static G_GNUC_UNUSED void  report_internal_mem_usage (void);
 
+static Fragment* alloc_fragment (char* frag_start, char* frag_end);
+static Fragment* prepend_nursery_frag (Fragment *frags, Fragment *fragment);
 static int stop_world (void);
 static int restart_world (void);
 static void scan_thread_data (void *start_nursery, void *end_nursery, gboolean precise);
@@ -1843,6 +1847,18 @@ check_for_xdomain_refs (void)
 	scan_pinned_objects (scan_pinned_object_for_xdomain_refs_callback, NULL);
 }
 
+static void
+clear_nursery_fragments (char *nursery_next)
+{
+	Fragment *frag;
+	g_assert (nursery_next <= nursery_frag_real_end);
+	memset (nursery_next, 0, nursery_frag_real_end - nursery_next);
+	for (frag = nursery_fragments; frag; frag = frag->next)
+		memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
+	for (frag = inactive_fragments; frag; frag = frag->next)
+		memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
+}
+
 /*
  * When appdomains are unloaded we can easily remove objects that have finalizers,
  * but all the others could still be present in random places on the heap.
@@ -1857,18 +1873,12 @@ mono_gc_clear_domain (MonoDomain * domain)
 {
 	GCMemSection *section;
 	LOSObject *bigobj, *prev;
-	Fragment *frag;
 	int i;
 
 	LOCK_GC;
 	/* Clear all remaining nursery fragments */
-	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION) {
-		g_assert (NURSERY_NEXT <= nursery_frag_real_end);
-		memset (NURSERY_NEXT, 0, nursery_frag_real_end - NURSERY_NEXT);
-		for (frag = nursery_fragments; frag; frag = frag->next) {
-			memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
-		}
-	}
+	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION)
+		clear_nursery_fragments (NURSERY_NEXT);
 
 	if (xdomain_checks && domain != mono_get_root_domain ()) {
 		scan_for_registered_roots_in_domain (domain, ROOT_TYPE_NORMAL);
@@ -2665,6 +2675,7 @@ alloc_fragment (char* frag_start, char* frag_end)
 		fragment_freelist = frag->next;
 	else
 		frag = get_internal_mem (sizeof (Fragment), INTERNAL_MEM_FRAGMENT);
+	g_assert (frag_end > frag_start);
 	frag->fragment_start = frag_start;
 	frag->fragment_end = frag_end;
 	frag->next = NULL;
@@ -2676,6 +2687,16 @@ free_fragment (Fragment *frag)
 {
 	frag->next = fragment_freelist;
 	fragment_freelist = frag;
+}
+
+static void
+free_fragment_list (Fragment *frags)
+{
+	while (frags) {
+		Fragment *frag = frags;
+		frags = frags->next;
+		free_fragment (frag);
+	}
 }
 
 /* size must be a power of 2 */
@@ -2762,6 +2783,11 @@ alloc_nursery (void)
 	inactive_nursery_section = add_section (NULL, data + DEFAULT_NURSERY_SEMISPACE_SIZE, DEFAULT_NURSERY_SEMISPACE_SIZE, MEMORY_ROLE_GEN0);
 
 	nursery_frag_real_end = nursery_section->end_data;
+
+	/* create initial, one-piece inactive fragment */
+	g_assert (!inactive_fragments);
+	inactive_fragments = prepend_nursery_frag (inactive_fragments,
+			alloc_fragment (inactive_nursery_section->data, inactive_nursery_section->end_data));
 }
 
 static void
@@ -2928,6 +2954,8 @@ to_space_expand_with_inactive_fragments (void)
 {
 	Fragment *frag = inactive_fragments;
 
+	/* If there's no more room in the semi-space, we simply
+	   overflow to a major section. */
 	if (!frag) {
 		to_space_expand_with_major_sections ();
 		return;
@@ -2937,6 +2965,8 @@ to_space_expand_with_inactive_fragments (void)
 
 	to_space_bumper = frag->fragment_start;
 	to_space_top = frag->fragment_end;
+
+	free_fragment (frag);
 }
 
 static void
@@ -3042,7 +3072,8 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation)
 
 	g_assert (gray_object_queue_is_empty ());
 	/* DEBUG (2, fprintf (gc_debug_file, "Copied from %s to old space: %d bytes (%p-%p)\n", generation_name (generation), (int)(to_space_bumper - to_space), to_space, to_space_bumper)); */
-	to_space_set_next_data ();
+	if (to_space_section->block.role != MEMORY_ROLE_GEN0)
+		to_space_set_next_data ();
 }
 
 static void
@@ -3089,7 +3120,8 @@ build_nursery_section_fragments (GCMemSection *section, void **pinned, int num_p
 		frag_size &= ~(ALLOC_ALIGN - 1);
 		frag_start = (char*)pinned [i] + frag_size;
 	}
-	*last_pinned_end = frag_start;
+	if (last_pinned_end)
+		*last_pinned_end = frag_start;
 	frag_end = section->end_data;
 	frag_size = frag_end - frag_start;
 	if (frag_size)
@@ -3112,11 +3144,8 @@ build_nursery_fragments (void **pinned, int num_pinned)
 	Fragment *frags, *frag;
 
 	/* free old nursery fragments */
-	while (nursery_fragments) {
-		Fragment *frag = nursery_fragments;
-		nursery_fragments = frag->next;
-		free_fragment (frag);
-	}
+	free_fragment_list (nursery_fragments);
+	nursery_fragments = NULL;
 
 	/* build the new ones */
 	frags = build_nursery_section_fragments (nursery_section, pinned, num_pinned, &nursery_last_pinned_end);
@@ -3137,6 +3166,14 @@ build_nursery_fragments (void **pinned, int num_pinned)
 
 	/* Clear TLABs for all threads */
 	clear_tlabs ();
+}
+
+static void
+build_inactive_nursery_fragments (void)
+{
+	g_assert (!inactive_fragments);
+	inactive_fragments = build_nursery_section_fragments (inactive_nursery_section,
+			inactive_pinned_objects, num_inactive_pinned_objects, NULL);
 }
 
 /* FIXME: later reduce code duplication here with the above
@@ -3370,7 +3407,6 @@ collect_nursery (gboolean evacuate_to_major)
 	size_t max_garbage_amount;
 	int i;
 	char *orig_nursery_next;
-	Fragment *frag;
 	GCMemSection *section;
 	int old_num_major_sections = num_major_sections;
 	int sections_alloced;
@@ -3379,13 +3415,17 @@ collect_nursery (gboolean evacuate_to_major)
 	TV_DECLARE (atv);
 	TV_DECLARE (btv);
 
+	next_nursery_collection_evacuates_to_major = FALSE;
+
 	init_stats ();
 	binary_protocol_collection (GENERATION_NURSERY);
 	check_scan_starts ();
 
 	degraded_mode = 0;
 	orig_nursery_next = NURSERY_NEXT;
-	NURSERY_NEXT = MAX (NURSERY_NEXT, nursery_last_pinned_end);
+	/* FIXME: this is incorrect because nursery_last_pinned_end is
+	   from the wrong semi-space. */
+	//NURSERY_NEXT = MAX (NURSERY_NEXT, nursery_last_pinned_end);
 	/* FIXME: optimize later to use the higher address where an object can be present */
 	NURSERY_NEXT = MAX (NURSERY_NEXT, nursery_section->end_data);
 
@@ -3397,13 +3437,8 @@ collect_nursery (gboolean evacuate_to_major)
 	g_assert (nursery_section->size >= max_garbage_amount);
 
 	/* Clear all remaining nursery fragments, pinning depends on this */
-	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION) {
-		g_assert (orig_nursery_next <= nursery_frag_real_end);
-		memset (orig_nursery_next, 0, nursery_frag_real_end - orig_nursery_next);
-		for (frag = nursery_fragments; frag; frag = frag->next) {
-			memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
-		}
-	}
+	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION)
+		clear_nursery_fragments (orig_nursery_next);
 
 	if (xdomain_checks)
 		check_for_xdomain_refs ();
@@ -3419,7 +3454,11 @@ collect_nursery (gboolean evacuate_to_major)
 			set_to_space_section (to_space_section);
 		}
 	} else {
+		g_assert (inactive_fragments);
+		to_space_section = inactive_nursery_section;
+		to_space_section->is_to_space = TRUE;
 		to_space_expand = to_space_expand_with_inactive_fragments;
+		to_space_expand_with_inactive_fragments ();
 	}
 
 	gray_object_queue_init ();
@@ -3446,9 +3485,15 @@ collect_nursery (gboolean evacuate_to_major)
 	 * walk all the roots and copy the young objects to the old generation,
 	 * starting from to_space
 	 */
+	if (!evacuate_to_major) {
+		for (i = 0; i < num_inactive_pinned_objects; ++i)
+			scan_object (inactive_pinned_objects [i], NURSERY_START, NURSERY_NEXT);
 
+		free_internal_mem (inactive_pinned_objects, INTERNAL_MEM_PIN_QUEUE);
+		inactive_pinned_objects = NULL;
+		num_inactive_pinned_objects = 0;
+	}
 	scan_from_remsets (NURSERY_START, NURSERY_NEXT);
-	/* we don't have complete write barrier yet, so we scan all the old generation sections */
 	TV_GETTIME (atv);
 	DEBUG (2, fprintf (gc_debug_file, "Old generation scan: %d usecs\n", TV_ELAPSED (btv, atv)));
 
@@ -3472,7 +3517,8 @@ collect_nursery (gboolean evacuate_to_major)
 	 * pinned objects as we go, memzero() the empty fragments so they are ready for the
 	 * next allocations.
 	 */
-	build_nursery_fragments (pin_queue, next_pin_slot);
+	if (evacuate_to_major)
+		build_nursery_fragments (pin_queue, next_pin_slot);
 	TV_GETTIME (atv);
 	DEBUG (2, fprintf (gc_debug_file, "Fragment creation: %d usecs, %zd bytes available\n", TV_ELAPSED (btv, atv), fragment_total));
 
@@ -3486,6 +3532,43 @@ collect_nursery (gboolean evacuate_to_major)
 
 	if (heap_dump_file)
 		dump_heap ("minor", num_minor_gcs - 1, NULL);
+
+	if (!evacuate_to_major) {
+		GCMemSection *tmp;
+
+		/* All the remaining inactive fragments, as well as
+		   the rest of the current to-space are TLAB fragments
+		   for the next round. */
+		free_fragment_list (nursery_fragments);
+		g_assert (to_space_bumper <= to_space_top);
+		if (to_space_bumper < to_space_top)
+			nursery_fragments = prepend_nursery_frag (inactive_fragments, alloc_fragment (to_space_bumper, to_space_top));
+		else
+			nursery_fragments = inactive_fragments;
+		inactive_fragments = NULL;
+		clear_tlabs ();
+
+		/* FIXME: play around with this, maybe make it configurable */
+		if (to_space_bumper + DEFAULT_NURSERY_SEMISPACE_SIZE / 2 > inactive_nursery_section->end_data)
+			next_nursery_collection_evacuates_to_major = TRUE;
+
+		inactive_pinned_objects = pin_queue;
+		num_inactive_pinned_objects = next_pin_slot;
+
+		pin_queue = NULL;
+		pin_queue_size = next_pin_slot = 0;
+
+		/* Swap semi-spaces */
+		tmp = nursery_section;
+		nursery_section = inactive_nursery_section;
+		inactive_nursery_section = tmp;
+
+		/* We set these here so that the next allocation picks
+		   up a new fragment. */
+		NURSERY_NEXT = nursery_frag_real_end = nursery_section->end_data;
+
+		build_inactive_nursery_fragments ();
+	}
 
 	/* prepare the pin queue for the next collection */
 	next_pin_slot = 0;
@@ -3504,6 +3587,9 @@ collect_nursery (gboolean evacuate_to_major)
 	sections_alloced = num_major_sections - old_num_major_sections;
 	minor_collection_sections_alloced += sections_alloced;
 
+	if (!evacuate_to_major)
+		g_assert (sections_alloced == 0);
+
 	return minor_collection_sections_alloced > minor_collection_section_allowance;
 }
 
@@ -3521,7 +3607,6 @@ major_collection (const char *reason)
 	LOSObject *bigobj, *prevbo;
 	int i;
 	PinnedChunk *chunk;
-	Fragment *frag;
 	TV_DECLARE (all_atv);
 	TV_DECLARE (all_btv);
 	TV_DECLARE (atv);
@@ -3546,13 +3631,8 @@ major_collection (const char *reason)
 	mono_stats.major_gc_count ++;
 
 	/* Clear all remaining nursery fragments, pinning depends on this */
-	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION) {
-		g_assert (NURSERY_NEXT <= nursery_frag_real_end);
-		memset (NURSERY_NEXT, 0, nursery_frag_real_end - NURSERY_NEXT);
-		for (frag = nursery_fragments; frag; frag = frag->next) {
-			memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
-		}
-	}
+	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION)
+		clear_nursery_fragments (NURSERY_NEXT);
 
 	if (xdomain_checks)
 		check_for_xdomain_refs ();
@@ -3564,7 +3644,7 @@ major_collection (const char *reason)
 	 * it is not ideal specially with large heaps.
 	 */
 	if (g_getenv ("MONO_GC_NO_MAJOR")) {
-		collect_nursery (TRUE);
+		collect_nursery (next_nursery_collection_evacuates_to_major);
 		return;
 	}
 	TV_GETTIME (all_atv);
@@ -3751,6 +3831,15 @@ major_collection (const char *reason)
 	build_nursery_fragments (pin_queue + nursery_section->pin_queue_start,
 			nursery_section->pin_queue_end - nursery_section->pin_queue_start);
 
+	free_internal_mem (inactive_pinned_objects, INTERNAL_MEM_PIN_QUEUE);
+	num_inactive_pinned_objects = inactive_nursery_section->pin_queue_end - inactive_nursery_section->pin_queue_start;
+	inactive_pinned_objects = get_internal_mem (sizeof (void*) * num_inactive_pinned_objects, INTERNAL_MEM_PIN_QUEUE);
+	memcpy (inactive_pinned_objects, pin_queue + inactive_nursery_section->pin_queue_start, sizeof (void*) * num_inactive_pinned_objects);
+
+	free_fragment_list (inactive_fragments);
+	inactive_fragments = NULL;
+	build_inactive_nursery_fragments ();
+
 	TV_GETTIME (all_btv);
 	mono_stats.major_gc_time_usecs += TV_ELAPSED (all_atv, all_btv);
 
@@ -3834,7 +3923,7 @@ minor_collect_or_expand_inner (size_t size)
 
 	if (do_minor_collection) {
 		stop_world ();
-		if (collect_nursery (TRUE))
+		if (collect_nursery (next_nursery_collection_evacuates_to_major))
 			major_collection ("minor overflow");
 		DEBUG (2, fprintf (gc_debug_file, "Heap size: %zd, LOS size: %zd\n", total_alloc, los_memory_usage));
 		restart_world ();
@@ -4420,7 +4509,7 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	if (G_UNLIKELY (collect_before_allocs)) {
 		if (nursery_section) {
 			stop_world ();
-			collect_nursery (TRUE);
+			collect_nursery (next_nursery_collection_evacuates_to_major);
 			restart_world ();
 			if (!degraded_mode && !search_fragment_for_size (size)) {
 				// FIXME:
