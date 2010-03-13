@@ -578,9 +578,8 @@ static int gc_disabled = 0;
 static int num_minor_gcs = 0;
 static int num_major_gcs = 0;
 
-/* good sizes are 512KB-1MB: larger ones increase a lot memzeroing time */
-//#define DEFAULT_NURSERY_SIZE (1024*512*125+4096*118)
-#define DEFAULT_NURSERY_SIZE (1024*512*2)
+/* This is the size of the nursery. */
+#define DEFAULT_NURSERY_SIZE (1024*1024)
 /* The number of trailing 0 bits in DEFAULT_NURSERY_SIZE */
 #define DEFAULT_NURSERY_BITS 20
 #define MAJOR_SECTION_SIZE	(128*1024)
@@ -756,6 +755,13 @@ static int num_roots_entries [ROOT_TYPE_NUM] = { 0, 0, 0 };
  * MAX(nursery_last_pinned_end, nursery_frag_real_end)
  */
 static char *nursery_start = NULL;
+static char *nursery_frag_real_end = NULL;
+static char *nursery_real_end = NULL;
+//static char *nursery_first_pinned_start = NULL;
+static char *nursery_last_pinned_end = NULL;
+
+#define NURSERY_START	(nursery_section->data)
+#define NURSERY_NEXT	(nursery_section->next_data)
 
 /* eventually share with MonoThread? */
 typedef struct _SgenThreadInfo SgenThreadInfo;
@@ -835,11 +841,6 @@ static __thread char **tlab_next_addr;
 static __thread char *stack_end;
 static __thread long *store_remset_buffer_index_addr;
 #endif
-static char *nursery_next = NULL;
-static char *nursery_frag_real_end = NULL;
-static char *nursery_real_end = NULL;
-//static char *nursery_first_pinned_start = NULL;
-static char *nursery_last_pinned_end = NULL;
 
 /* The size of a TLAB */
 /* The bigger the value, the less often we have to go to the slow path to allocate a new 
@@ -1384,7 +1385,7 @@ static mword obj_references_checked = 0;
 
 #undef HANDLE_PTR
 #define HANDLE_PTR(ptr,obj)	do {	\
-		if (*(ptr) && (char*)*(ptr) >= nursery_start && (char*)*(ptr) < nursery_next) {	\
+		if (*(ptr) && (char*)*(ptr) >= NURSERY_START && (char*)*(ptr) < NURSERY_NEXT) {	\
 			new_obj_references++;	\
 			/*printf ("bogus ptr %p found at %p in object %p (%s.%s)\n", *(ptr), (ptr), o, o->vtable->klass->name_space, o->vtable->klass->name);*/	\
 		} else {	\
@@ -1860,8 +1861,8 @@ mono_gc_clear_domain (MonoDomain * domain)
 	LOCK_GC;
 	/* Clear all remaining nursery fragments */
 	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION) {
-		g_assert (nursery_next <= nursery_frag_real_end);
-		memset (nursery_next, 0, nursery_frag_real_end - nursery_next);
+		g_assert (NURSERY_NEXT <= nursery_frag_real_end);
+		memset (NURSERY_NEXT, 0, nursery_frag_real_end - NURSERY_NEXT);
 		for (frag = nursery_fragments; frag; frag = frag->next) {
 			memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
 		}
@@ -2743,7 +2744,6 @@ alloc_nursery (void)
 #endif
 	nursery_start = data;
 	nursery_real_end = nursery_start + alloc_size;
-	nursery_next = nursery_start;
 	total_alloc += alloc_size;
 	DEBUG (4, fprintf (gc_debug_file, "Expanding nursery size (%p-%p): %zd, total: %zd\n", data, data + alloc_size, alloc_size, total_alloc));
 
@@ -3050,7 +3050,7 @@ build_nursery_fragments (int start_pin, int end_pin)
 		fragment_freelist = nursery_fragments;
 		nursery_fragments = next;
 	}
-	frag_start = nursery_start;
+	frag_start = NURSERY_START;
 	fragment_total = 0;
 	/* clear scan starts */
 	memset (nursery_section->scan_starts, 0, nursery_section->num_scan_start * sizeof (gpointer));
@@ -3068,7 +3068,8 @@ build_nursery_fragments (int start_pin, int end_pin)
 		frag_start = (char*)pin_queue [i] + frag_size;
 	}
 	nursery_last_pinned_end = frag_start;
-	frag_end = nursery_real_end;
+	frag_end = nursery_section->end_data;
+	g_assert (nursery_section->end_data == nursery_real_end);
 	frag_size = frag_end - frag_start;
 	if (frag_size)
 		add_nursery_frag (frag_size, frag_start, frag_end);
@@ -3080,7 +3081,7 @@ build_nursery_fragments (int start_pin, int end_pin)
 		degraded_mode = 1;
 	}
 
-	nursery_next = nursery_frag_real_end = NULL;
+	NURSERY_NEXT = nursery_frag_real_end = NULL;
 
 	/* Clear TLABs for all threads */
 	clear_tlabs ();
@@ -3331,13 +3332,16 @@ collect_nursery (size_t requested_size)
 	check_scan_starts ();
 
 	degraded_mode = 0;
-	orig_nursery_next = nursery_next;
-	nursery_next = MAX (nursery_next, nursery_last_pinned_end);
+	orig_nursery_next = NURSERY_NEXT;
+	NURSERY_NEXT = MAX (NURSERY_NEXT, nursery_last_pinned_end);
 	/* FIXME: optimize later to use the higher address where an object can be present */
-	nursery_next = MAX (nursery_next, nursery_real_end);
+	NURSERY_NEXT = MAX (NURSERY_NEXT, nursery_section->end_data);
 
-	DEBUG (1, fprintf (gc_debug_file, "Start nursery collection %d %p-%p, size: %d\n", num_minor_gcs, nursery_start, nursery_next, (int)(nursery_next - nursery_start)));
-	max_garbage_amount = nursery_next - nursery_start;
+	if (consistency_check_at_minor_collection)
+		check_consistency ();
+
+	DEBUG (1, fprintf (gc_debug_file, "Start nursery collection %d %p-%p, size: %d\n", num_minor_gcs, NURSERY_START, NURSERY_NEXT, (int)(NURSERY_NEXT - NURSERY_START)));
+	max_garbage_amount = NURSERY_NEXT - NURSERY_START;
 	g_assert (nursery_section->size >= max_garbage_amount);
 
 	/* Clear all remaining nursery fragments, pinning depends on this */
@@ -3351,8 +3355,6 @@ collect_nursery (size_t requested_size)
 
 	if (xdomain_checks)
 		check_for_xdomain_refs ();
-
-	nursery_section->next_data = nursery_next;
 
 	if (!to_space_section) {
 		new_to_space_section ();
@@ -3373,10 +3375,10 @@ collect_nursery (size_t requested_size)
 	TV_GETTIME (atv);
 	/* pin from pinned handles */
 	init_pinning ();
-	pin_from_roots (nursery_start, nursery_next);
+	pin_from_roots (NURSERY_START, NURSERY_NEXT);
 	/* identify pinned objects */
 	optimize_pin_queue (0);
-	next_pin_slot = pin_objects_from_addresses (nursery_section, pin_queue, pin_queue + next_pin_slot, nursery_start, nursery_next);
+	next_pin_slot = pin_objects_from_addresses (nursery_section, pin_queue, pin_queue + next_pin_slot, NURSERY_START, NURSERY_NEXT);
 	TV_GETTIME (btv);
 	DEBUG (2, fprintf (gc_debug_file, "Finding pinned pointers: %d in %d usecs\n", next_pin_slot, TV_ELAPSED (atv, btv)));
 	DEBUG (4, fprintf (gc_debug_file, "Start scan with %d pinned objects\n", next_pin_slot));
@@ -3389,7 +3391,7 @@ collect_nursery (size_t requested_size)
 	 * starting from to_space
 	 */
 
-	scan_from_remsets (nursery_start, nursery_next);
+	scan_from_remsets (NURSERY_START, NURSERY_NEXT);
 	/* we don't have complete write barrier yet, so we scan all the old generation sections */
 	TV_GETTIME (atv);
 	DEBUG (2, fprintf (gc_debug_file, "Old generation scan: %d usecs\n", TV_ELAPSED (btv, atv)));
@@ -3397,18 +3399,18 @@ collect_nursery (size_t requested_size)
 	/* the pinned objects are roots */
 	for (i = 0; i < next_pin_slot; ++i) {
 		DEBUG (6, fprintf (gc_debug_file, "Precise object scan %d of pinned %p (%s)\n", i, pin_queue [i], safe_name (pin_queue [i])));
-		scan_object (pin_queue [i], nursery_start, nursery_next);
+		scan_object (pin_queue [i], NURSERY_START, NURSERY_NEXT);
 	}
 	/* registered roots, this includes static fields */
-	scan_from_registered_roots (nursery_start, nursery_next, ROOT_TYPE_NORMAL);
-	scan_from_registered_roots (nursery_start, nursery_next, ROOT_TYPE_WBARRIER);
-	scan_thread_data (nursery_start, nursery_next, TRUE);
+	scan_from_registered_roots (NURSERY_START, NURSERY_NEXT, ROOT_TYPE_NORMAL);
+	scan_from_registered_roots (NURSERY_START, NURSERY_NEXT, ROOT_TYPE_WBARRIER);
+	scan_thread_data (NURSERY_START, NURSERY_NEXT, TRUE);
 	/* alloc_pinned objects */
-	scan_from_pinned_objects (nursery_start, nursery_next);
+	scan_from_pinned_objects (NURSERY_START, NURSERY_NEXT);
 	TV_GETTIME (btv);
 	DEBUG (2, fprintf (gc_debug_file, "Root scan: %d usecs\n", TV_ELAPSED (atv, btv)));
 
-	finish_gray_stack (nursery_start, nursery_next, GENERATION_NURSERY);
+	finish_gray_stack (NURSERY_START, NURSERY_NEXT, GENERATION_NURSERY);
 
 	/* walk the pin_queue, build up the fragment list of free memory, unmark
 	 * pinned objects as we go, memzero() the empty fragments so they are ready for the
@@ -3474,7 +3476,6 @@ major_collection (const char *reason)
 	 */
 	char *heap_start = NULL;
 	char *heap_end = (char*)-1;
-	size_t copy_space_required = 0;
 	int old_num_major_sections = num_major_sections;
 	int num_major_sections_saved, save_target, allowance_target;
 
@@ -3489,8 +3490,8 @@ major_collection (const char *reason)
 
 	/* Clear all remaining nursery fragments, pinning depends on this */
 	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION) {
-		g_assert (nursery_next <= nursery_frag_real_end);
-		memset (nursery_next, 0, nursery_frag_real_end - nursery_next);
+		g_assert (NURSERY_NEXT <= nursery_frag_real_end);
+		memset (NURSERY_NEXT, 0, nursery_frag_real_end - NURSERY_NEXT);
 		for (frag = nursery_fragments; frag; frag = frag->next) {
 			memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
 		}
@@ -3510,8 +3511,6 @@ major_collection (const char *reason)
 		return;
 	}
 	TV_GETTIME (all_atv);
-	/* FIXME: make sure the nursery next_data ptr is updated */
-	nursery_section->next_data = nursery_real_end;
 	/* we should also coalesce scanning from sections close to each other
 	 * and deal with pointers outside of the sections later.
 	 */
@@ -3572,13 +3571,13 @@ major_collection (const char *reason)
 		int start = section->pin_queue_start;
 		int end = section->pin_queue_end;
 		if (start != end) {
+			char *next_data = section->block.role == MEMORY_ROLE_GEN0 ? section->end_data : section->next_data;
 			int reduced_to;
 			reduced_to = pin_objects_from_addresses (section, pin_queue + start, pin_queue + end,
-					section->data, section->next_data);
+					section->data, next_data);
 			section->pin_queue_start = start;
 			section->pin_queue_end = start + reduced_to;
 		}
-		copy_space_required += (char*)section->next_data - (char*)section->data;
 	}
 
 	TV_GETTIME (btv);
@@ -3772,10 +3771,8 @@ minor_collect_or_expand_inner (size_t size)
 {
 	int do_minor_collection = 1;
 
-	if (!nursery_section) {
-		alloc_nursery ();
-		return;
-	}
+	g_assert (nursery_section);
+
 	if (do_minor_collection) {
 		stop_world ();
 		if (collect_nursery (size))
@@ -4288,9 +4285,9 @@ search_fragment_for_size (size_t size)
 	Fragment *frag, *prev;
 	DEBUG (4, fprintf (gc_debug_file, "Searching nursery fragment %p, size: %zd\n", nursery_frag_real_end, size));
 
-	if (nursery_frag_real_end > nursery_next && nursery_clear_policy == CLEAR_AT_TLAB_CREATION)
+	if (nursery_frag_real_end > NURSERY_NEXT && nursery_clear_policy == CLEAR_AT_TLAB_CREATION)
 		/* Clear the remaining space, pinning depends on this */
-		memset (nursery_next, 0, nursery_frag_real_end - nursery_next);
+		memset (NURSERY_NEXT, 0, nursery_frag_real_end - NURSERY_NEXT);
 
 	prev = NULL;
 	for (frag = nursery_fragments; frag; frag = frag->next) {
@@ -4300,10 +4297,10 @@ search_fragment_for_size (size_t size)
 				prev->next = frag->next;
 			else
 				nursery_fragments = frag->next;
-			nursery_next = frag->fragment_start;
+			NURSERY_NEXT = frag->fragment_start;
 			nursery_frag_real_end = frag->fragment_end;
 
-			DEBUG (4, fprintf (gc_debug_file, "Using nursery fragment %p-%p, size: %zd (req: %zd)\n", nursery_next, nursery_frag_real_end, nursery_frag_real_end - nursery_next, size));
+			DEBUG (4, fprintf (gc_debug_file, "Using nursery fragment %p-%p, size: %zd (req: %zd)\n", NURSERY_NEXT, nursery_frag_real_end, nursery_frag_real_end - NURSERY_NEXT, size));
 			frag->next = fragment_freelist;
 			fragment_freelist = frag;
 			return TRUE;
@@ -4441,14 +4438,14 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 			/* when running in degraded mode, we continue allocing that way
 			 * for a while, to decrease the number of useless nursery collections.
 			 */
-			if (degraded_mode && degraded_mode < DEFAULT_NURSERY_SIZE) {
+			if (degraded_mode) {
 				p = alloc_degraded (vtable, size);
 				return p;
 			}
 
 			if (size > tlab_size) {
 				/* Allocate directly from the nursery */
-				if (nursery_next + size >= nursery_frag_real_end) {
+				if (NURSERY_NEXT + size >= nursery_frag_real_end) {
 					if (!search_fragment_for_size (size)) {
 						minor_collect_or_expand_inner (size);
 						if (degraded_mode) {
@@ -4458,9 +4455,9 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 					}
 				}
 
-				p = (void*)nursery_next;
-				nursery_next += size;
-				if (nursery_next > nursery_frag_real_end) {
+				p = (void*)NURSERY_NEXT;
+				NURSERY_NEXT += size;
+				if (NURSERY_NEXT > nursery_frag_real_end) {
 					// no space left
 					g_assert (0);
 				}
@@ -4471,7 +4468,7 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 				if (TLAB_START)
 					DEBUG (3, fprintf (gc_debug_file, "Retire TLAB: %p-%p [%ld]\n", TLAB_START, TLAB_REAL_END, (long)(TLAB_REAL_END - TLAB_NEXT - size)));
 
-				if (nursery_next + tlab_size >= nursery_frag_real_end) {
+				if (NURSERY_NEXT + tlab_size >= nursery_frag_real_end) {
 					res = search_fragment_for_size (tlab_size);
 					if (!res) {
 						minor_collect_or_expand_inner (tlab_size);
@@ -4483,8 +4480,8 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 				}
 
 				/* Allocate a new TLAB from the current nursery fragment */
-				TLAB_START = nursery_next;
-				nursery_next += tlab_size;
+				TLAB_START = NURSERY_NEXT;
+				NURSERY_NEXT += tlab_size;
 				TLAB_NEXT = TLAB_START;
 				TLAB_REAL_END = TLAB_START + tlab_size;
 				TLAB_TEMP_END = TLAB_START + MIN (SCAN_START_SIZE, tlab_size);
@@ -6983,7 +6980,7 @@ static gboolean missing_remsets;
  */
 #undef HANDLE_PTR
 #define HANDLE_PTR(ptr,obj)	do {	\
-		if (*(ptr) && (char*)*(ptr) >= nursery_start && (char*)*(ptr) < nursery_next) {	\
+		if (*(ptr) && (char*)*(ptr) >= NURSERY_START && (char*)*(ptr) < NURSERY_NEXT) {	\
 		if (!find_in_remsets ((char*)(ptr))) { \
                 fprintf (gc_debug_file, "Oldspace->newspace reference %p at offset %zd in object %p (%s.%s) not found in remsets.\n", *(ptr), (char*)(ptr) - (char*)(obj), (obj), ((MonoObject*)(obj))->vtable->klass->name_space, ((MonoObject*)(obj))->vtable->klass->name); \
 		binary_protocol_missing_remset ((obj), (gpointer)LOAD_VTABLE ((obj)), (char*)(ptr) - (char*)(obj), *(ptr), (gpointer)LOAD_VTABLE(*(ptr)), object_is_pinned (*(ptr))); \
@@ -7342,6 +7339,8 @@ mono_gc_base_init (void)
 #ifndef HAVE_KW_THREAD
 	pthread_key_create (&thread_info_key, NULL);
 #endif
+
+	alloc_nursery ();
 
 	gc_initialized = TRUE;
 	UNLOCK_GC;
