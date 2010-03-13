@@ -933,7 +933,7 @@ char* check_object (char *start);
 
 void mono_gc_scan_for_specific_ref (MonoObject *key);
 
-static void (*to_space_expand) (void) = NULL;
+static void (*to_space_expand) (size_t request_size) = NULL;
 
 /*
  * ######################################################################
@@ -2111,7 +2111,7 @@ copy_object (char *obj, char *from_space_start, char *from_space_end)
 
 	/* Make sure we have enough space available */
 	if (to_space_bumper + objsize > to_space_top) {
-		to_space_expand ();
+		to_space_expand (objsize);
 		g_assert (to_space_bumper + objsize <= to_space_top);
 	}
 
@@ -2939,8 +2939,10 @@ to_space_set_next_data (void)
 }
 
 static void
-to_space_expand_with_major_sections (void)
+to_space_expand_with_major_sections (size_t request_size)
 {
+	g_assert (request_size <= MAX_SMALL_OBJ_SIZE);
+
 	if (to_space_section) {
 		g_assert (to_space_top == to_space_section->end_data);
 		to_space_set_next_data ();
@@ -2950,23 +2952,29 @@ to_space_expand_with_major_sections (void)
 }
 
 static void
-to_space_expand_with_inactive_fragments (void)
+to_space_expand_with_inactive_fragments (size_t request_size)
 {
-	Fragment *frag = inactive_fragments;
+	Fragment *frag;
 
-	/* If there's no more room in the semi-space, we simply
-	   overflow to a major section. */
-	if (!frag) {
-		to_space_expand_with_major_sections ();
-		return;
-	}
+	g_assert (request_size <= MAX_SMALL_OBJ_SIZE);
 
-	inactive_fragments = frag->next;
+	do {
+		frag = inactive_fragments;
 
-	to_space_bumper = frag->fragment_start;
-	to_space_top = frag->fragment_end;
+		/* If there's no more room in the semi-space, we simply
+		   overflow to a major section. */
+		if (!frag) {
+			to_space_expand_with_major_sections (request_size);
+			return;
+		}
 
-	free_fragment (frag);
+		inactive_fragments = frag->next;
+
+		to_space_bumper = frag->fragment_start;
+		to_space_top = frag->fragment_end;
+
+		free_fragment (frag);
+	} while (to_space_bumper + request_size > to_space_top);
 }
 
 static void
@@ -3458,7 +3466,7 @@ collect_nursery (gboolean evacuate_to_major)
 		to_space_section = inactive_nursery_section;
 		to_space_section->is_to_space = TRUE;
 		to_space_expand = to_space_expand_with_inactive_fragments;
-		to_space_expand_with_inactive_fragments ();
+		to_space_expand_with_inactive_fragments (0);
 	}
 
 	gray_object_queue_init ();
