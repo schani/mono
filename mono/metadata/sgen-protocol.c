@@ -13,12 +13,15 @@ static int binary_protocol_buffer_index = 0;
 static void
 flush_binary_protocol_buffer (void)
 {
+	int result;
+
 	if (!binary_protocol_file)
 		return;
 	if (binary_protocol_buffer_index == 0)
 		return;
 
-	fwrite (binary_protocol_buffer, 1, binary_protocol_buffer_index, binary_protocol_file);
+	result = fwrite (binary_protocol_buffer, 1, binary_protocol_buffer_index, binary_protocol_file);
+	g_assert (result == binary_protocol_buffer_index);
 	fflush (binary_protocol_file);
 
 	binary_protocol_buffer_index = 0;

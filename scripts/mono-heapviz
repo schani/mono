@@ -74,14 +74,15 @@ class SectionHandler:
         return img
 
     def emit (self, collection_file, collection_kind, collection_num, section_num):
-        print ('<h2>%s</h2>' % self.header (), file = collection_file)
-        print ('<p>Size %d kB - ' % (self.size / 1024), file = collection_file)
-        print ('used %d kB</p>' % (self.used / 1024), file = collection_file)
+        if self.ranges:
+            print ('<h2>%s</h2>' % self.header (), file = collection_file)
+            print ('<p>Size %d kB - ' % (self.size / 1024), file = collection_file)
+            print ('used %d kB</p>' % (self.used / 1024), file = collection_file)
 
-        filename = '%s_%d_%d.png' % (collection_kind, collection_num, section_num)
-        print ('<p><img src="%s"></img></p>' % filename, file = collection_file)
-        img = self.draw ()
-        img.save (filename)
+            filename = '%s_%d_%d.png' % (collection_kind, collection_num, section_num)
+            print ('<p><img src="%s"></img></p>' % filename, file = collection_file)
+            img = self.draw ()
+            img.save (filename)
 
 class SmallSectionHandler (SectionHandler):
     def __init__ (self):

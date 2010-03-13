@@ -1685,6 +1685,10 @@ mono_gc_scan_for_specific_ref (MonoObject *key)
 //#define BINARY_PROTOCOL
 #include "sgen-protocol.c"
 
+#ifdef BINARY_PROTOCOL
+#define DISABLE_CRITICAL_REGION
+#endif
+
 static gboolean
 need_remove_object_for_domain (char *start, MonoDomain *domain)
 {
@@ -1852,6 +1856,8 @@ clear_nursery_fragments (char *nursery_next)
 {
 	Fragment *frag;
 	g_assert (nursery_next <= nursery_frag_real_end);
+	// FIXME: this is not correct when we have two nurseries!
+	g_assert_not_reached ();
 	memset (nursery_next, 0, nursery_frag_real_end - nursery_next);
 	for (frag = nursery_fragments; frag; frag = frag->next)
 		memset (frag->fragment_start, 0, frag->fragment_end - frag->fragment_start);
@@ -2187,6 +2193,7 @@ copy_object (char *obj, char *from_space_start, char *from_space_end)
 		if (__old) {	\
 			*(ptr) = __copy = copy_object (__old, from_start, from_end);	\
 			DEBUG (9, if (__old != __copy) fprintf (gc_debug_file, "Overwrote field at %p with %p (was: %p)\n", (ptr), *(ptr), __old));	\
+			binary_protocol_ptr_update ((ptr), __old, *(ptr), (gpointer)LOAD_VTABLE (*(ptr)), safe_object_get_size (*(ptr))); \
 			if (G_UNLIKELY (ptr_in_nursery (__copy) && !ptr_in_nursery ((ptr)))) \
 				add_to_global_remset ((ptr), FALSE);							\
 		}	\
@@ -3269,7 +3276,8 @@ dump_section (GCMemSection *section, const char *type)
 			start += sizeof (void*); /* should be ALLOC_ALIGN, really */
 			continue;
 		}
-		g_assert (start < section->next_data);
+		if (section->block.role != MEMORY_ROLE_GEN0)
+			g_assert (start < section->next_data);
 
 		if (!occ_start)
 			occ_start = start;
@@ -3323,6 +3331,7 @@ dump_heap (const char *type, int num, const char *reason)
 	fprintf (heap_dump_file, "<pinned type=\"other\" bytes=\"%zu\"/>\n", pinned_byte_counts [PIN_TYPE_OTHER]);
 
 	dump_section (nursery_section, "nursery");
+	dump_section (inactive_nursery_section, "nursery");
 
 	for (section = section_list; section; section = section->block.next) {
 		if (section->block.role == MEMORY_ROLE_GEN1)
@@ -3493,10 +3502,14 @@ collect_nursery (gboolean evacuate_to_major)
 	 * walk all the roots and copy the young objects to the old generation,
 	 * starting from to_space
 	 */
+	/*
+	 * FIXME: We're keeping the inactive pinned objects from the
+	 * last collection, but we could just as well pin in this
+	 * collection and be more precise.
+	 */
+	for (i = 0; i < num_inactive_pinned_objects; ++i)
+		scan_object (inactive_pinned_objects [i], NURSERY_START, NURSERY_NEXT);
 	if (!evacuate_to_major) {
-		for (i = 0; i < num_inactive_pinned_objects; ++i)
-			scan_object (inactive_pinned_objects [i], NURSERY_START, NURSERY_NEXT);
-
 		free_internal_mem (inactive_pinned_objects, INTERNAL_MEM_PIN_QUEUE);
 		inactive_pinned_objects = NULL;
 		num_inactive_pinned_objects = 0;
@@ -3538,9 +3551,6 @@ collect_nursery (gboolean evacuate_to_major)
 	TV_GETTIME (all_btv);
 	mono_stats.minor_gc_time_usecs += TV_ELAPSED (all_atv, all_btv);
 
-	if (heap_dump_file)
-		dump_heap ("minor", num_minor_gcs - 1, NULL);
-
 	if (!evacuate_to_major) {
 		GCMemSection *tmp;
 
@@ -3577,6 +3587,9 @@ collect_nursery (gboolean evacuate_to_major)
 
 		build_inactive_nursery_fragments ();
 	}
+
+	if (heap_dump_file)
+		dump_heap (evacuate_to_major ? "minor evacuate" : "minor", num_minor_gcs - 1, NULL);
 
 	/* prepare the pin queue for the next collection */
 	next_pin_slot = 0;
@@ -5962,7 +5975,7 @@ handle_remset (mword *p, void *start_nursery, void *end_nursery, gboolean global
 			DEBUG (9, fprintf (gc_debug_file, "Overwrote remset at %p with %p\n", ptr, *ptr));
 			if (old)
 				binary_protocol_ptr_update (ptr, old, *ptr, (gpointer)LOAD_VTABLE (*ptr), safe_object_get_size (*ptr));
-			if (!global && *ptr >= start_nursery && *ptr < end_nursery) {
+			if (!global && ptr_in_nursery (*ptr)) {
 				/*
 				 * If the object is pinned, each reference to it from nonpinned objects
 				 * becomes part of the global remset, which can grow very large.
@@ -5982,7 +5995,7 @@ handle_remset (mword *p, void *start_nursery, void *end_nursery, gboolean global
 		while (count-- > 0) {
 			*ptr = copy_object (*ptr, start_nursery, end_nursery);
 			DEBUG (9, fprintf (gc_debug_file, "Overwrote remset at %p with %p (count: %d)\n", ptr, *ptr, (int)count));
-			if (!global && *ptr >= start_nursery && *ptr < end_nursery)
+			if (!global && ptr_in_nursery (*ptr))
 				add_to_global_remset (ptr, FALSE);
 			++ptr;
 		}
@@ -6009,7 +6022,7 @@ handle_remset (mword *p, void *start_nursery, void *end_nursery, gboolean global
 			/* Same as REMSET_LOCATION, but the address is not required to be in the heap */
 			*ptr = copy_object (*ptr, start_nursery, end_nursery);
 			DEBUG (9, fprintf (gc_debug_file, "Overwrote root location remset at %p with %p\n", ptr, *ptr));
-			if (!global && *ptr >= start_nursery && *ptr < end_nursery) {
+			if (!global && ptr_in_nursery (*ptr)) {
 				/*
 				 * If the object is pinned, each reference to it from nonpinned objects
 				 * becomes part of the global remset, which can grow very large.
