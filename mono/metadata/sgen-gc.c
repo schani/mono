@@ -421,7 +421,6 @@ typedef struct _Fragment Fragment;
 struct _Fragment {
 	Fragment *next;
 	char *fragment_start;
-	char *fragment_limit; /* the current soft limit for allocation */
 	char *fragment_end;
 };
 
@@ -852,6 +851,8 @@ static guint32 tlab_size = (1024 * 4);
 
 /* fragments that are free and ready to be used for allocation */
 static Fragment *nursery_fragments = NULL;
+/* fragments of the inactive nursery semi-space */
+static Fragment *inactive_fragments = NULL;
 /* freeelist of fragment structures */
 static Fragment *fragment_freelist = NULL;
 
@@ -919,7 +920,6 @@ static void sweep_pinned_objects (void);
 static void scan_from_pinned_objects (char *addr_start, char *addr_end);
 static void free_large_object (LOSObject *obj);
 static void free_major_section (GCMemSection *section);
-static void to_space_expand (void);
 
 static void mono_gc_register_disappearing_link (MonoObject *obj, void **link, gboolean track);
 
@@ -928,6 +928,8 @@ void check_consistency (void);
 char* check_object (char *start);
 
 void mono_gc_scan_for_specific_ref (MonoObject *key);
+
+static void (*to_space_expand) (void) = NULL;
 
 /*
  * ######################################################################
@@ -2340,6 +2342,9 @@ static void** pin_queue;
 static int pin_queue_size = 0;
 static int next_pin_slot = 0;
 
+static void** inactive_pinned_objects = NULL;
+static int num_inactive_pinned_objects = 0;
+
 static int
 new_gap (int gap)
 {
@@ -2653,17 +2658,24 @@ precisely_scan_objects_from (void** start_root, void** end_root, char* n_start, 
 }
 
 static Fragment*
-alloc_fragment (void)
+alloc_fragment (char* frag_start, char* frag_end)
 {
 	Fragment *frag = fragment_freelist;
-	if (frag) {
+	if (frag)
 		fragment_freelist = frag->next;
-		frag->next = NULL;
-		return frag;
-	}
-	frag = get_internal_mem (sizeof (Fragment), INTERNAL_MEM_FRAGMENT);
+	else
+		frag = get_internal_mem (sizeof (Fragment), INTERNAL_MEM_FRAGMENT);
+	frag->fragment_start = frag_start;
+	frag->fragment_end = frag_end;
 	frag->next = NULL;
 	return frag;
+}
+
+static void
+free_fragment (Fragment *frag)
+{
+	frag->next = fragment_freelist;
+	fragment_freelist = frag;
 }
 
 /* size must be a power of 2 */
@@ -2806,27 +2818,25 @@ static mword fragment_total = 0;
  * it is big enough, add it to the list of fragments that can be used for
  * allocation.
  */
-static void
-add_nursery_frag (size_t frag_size, char* frag_start, char* frag_end)
+static Fragment*
+prepend_nursery_frag (Fragment *frags, Fragment *fragment)
 {
-	Fragment *fragment;
-	DEBUG (4, fprintf (gc_debug_file, "Found empty fragment: %p-%p, size: %zd\n", frag_start, frag_end, frag_size));
-	binary_protocol_empty (frag_start, frag_size);
+	ssize_t frag_size = fragment->fragment_end - fragment->fragment_start;
+	DEBUG (4, fprintf (gc_debug_file, "Found empty fragment: %p-%p, size: %zd\n",
+					fragment->fragment_start, fragment->fragment_end, frag_size));
+	binary_protocol_empty (fragment->fragment_start, frag_size);
 	/* memsetting just the first chunk start is bound to provide better cache locality */
 	if (nursery_clear_policy == CLEAR_AT_GC)
-		memset (frag_start, 0, frag_size);
+		memset (fragment->fragment_start, 0, frag_size);
 	/* Not worth dealing with smaller fragments: need to tune */
 	if (frag_size >= FRAGMENT_MIN_SIZE) {
-		fragment = alloc_fragment ();
-		fragment->fragment_start = frag_start;
-		fragment->fragment_limit = frag_start;
-		fragment->fragment_end = frag_end;
-		fragment->next = nursery_fragments;
-		nursery_fragments = fragment;
-		fragment_total += frag_size;
+		fragment->next = frags;
+		return fragment;
 	} else {
 		/* Clear unused fragments, pinning depends on this */
-		memset (frag_start, 0, frag_size);
+		memset (fragment->fragment_start, 0, frag_size);
+		free_fragment (fragment);
+		return frags;
 	}
 }
 
@@ -2878,14 +2888,21 @@ get_finalize_entry_hash_table (int generation)
 }
 
 static void
+set_to_space_section (GCMemSection *section)
+{
+	to_space_section = section;
+	to_space_section->is_to_space = TRUE;
+	to_space_bumper = to_space_section->next_data;
+	to_space_top = to_space_section->end_data;
+}
+
+static void
 new_to_space_section (void)
 {
 	/* FIXME: if the current to_space_section is empty, we don't
 	   have to allocate a new one */
 
-	to_space_section = alloc_major_section ();
-	to_space_bumper = to_space_section->next_data;
-	to_space_top = to_space_section->end_data;
+	set_to_space_section (alloc_major_section ());
 }
 
 static void
@@ -2896,7 +2913,7 @@ to_space_set_next_data (void)
 }
 
 static void
-to_space_expand (void)
+to_space_expand_with_major_sections (void)
 {
 	if (to_space_section) {
 		g_assert (to_space_top == to_space_section->end_data);
@@ -2904,6 +2921,22 @@ to_space_expand (void)
 	}
 
 	new_to_space_section ();
+}
+
+static void
+to_space_expand_with_inactive_fragments (void)
+{
+	Fragment *frag = inactive_fragments;
+
+	if (!frag) {
+		to_space_expand_with_major_sections ();
+		return;
+	}
+
+	inactive_fragments = frag->next;
+
+	to_space_bumper = frag->fragment_start;
+	to_space_top = frag->fragment_end;
 }
 
 static void
@@ -3031,50 +3064,76 @@ check_scan_starts (void)
 
 static int last_num_pinned = 0;
 
-static void
-build_nursery_fragments (int start_pin, int end_pin)
+static Fragment*
+build_nursery_section_fragments (GCMemSection *section, void **pinned, int num_pinned, char **last_pinned_end)
 {
+	Fragment *frags = NULL;
+	Fragment *reversed;
 	char *frag_start, *frag_end;
 	size_t frag_size;
 	int i;
 
-	while (nursery_fragments) {
-		Fragment *next = nursery_fragments->next;
-		nursery_fragments->next = fragment_freelist;
-		fragment_freelist = nursery_fragments;
-		nursery_fragments = next;
-	}
-	frag_start = NURSERY_START;
-	fragment_total = 0;
+	frag_start = section->data;
 	/* clear scan starts */
-	memset (nursery_section->scan_starts, 0, nursery_section->num_scan_start * sizeof (gpointer));
-	for (i = start_pin; i < end_pin; ++i) {
-		frag_end = pin_queue [i];
+	memset (section->scan_starts, 0, section->num_scan_start * sizeof (gpointer));
+	for (i = 0; i < num_pinned; ++i) {
+		frag_end = pinned [i];
 		/* remove the pin bit from pinned objects */
 		unpin_object (frag_end);
-		nursery_section->scan_starts [((char*)frag_end - (char*)nursery_section->data)/SCAN_START_SIZE] = frag_end;
+		section->scan_starts [((char*)frag_end - (char*)section->data)/SCAN_START_SIZE] = frag_end;
 		frag_size = frag_end - frag_start;
 		if (frag_size)
-			add_nursery_frag (frag_size, frag_start, frag_end);
-		frag_size = safe_object_get_size ((MonoObject*)pin_queue [i]);
+			frags = prepend_nursery_frag (frags, alloc_fragment (frag_start, frag_end));
+		frag_size = safe_object_get_size ((MonoObject*)pinned [i]);
 		frag_size += ALLOC_ALIGN - 1;
 		frag_size &= ~(ALLOC_ALIGN - 1);
-		frag_start = (char*)pin_queue [i] + frag_size;
+		frag_start = (char*)pinned [i] + frag_size;
 	}
-	nursery_last_pinned_end = frag_start;
-	frag_end = nursery_section->end_data;
+	*last_pinned_end = frag_start;
+	frag_end = section->end_data;
 	frag_size = frag_end - frag_start;
 	if (frag_size)
-		add_nursery_frag (frag_size, frag_start, frag_end);
-	if (!nursery_fragments) {
-		DEBUG (1, fprintf (gc_debug_file, "Nursery fully pinned (%d)\n", end_pin - start_pin));
-		for (i = start_pin; i < end_pin; ++i) {
-			DEBUG (3, fprintf (gc_debug_file, "Bastard pinning obj %p (%s), size: %d\n", pin_queue [i], safe_name (pin_queue [i]), safe_object_get_size (pin_queue [i])));
-		}
+		frags = prepend_nursery_frag (frags, alloc_fragment (frag_start, frag_end));
+
+	/* reverse the list */
+	reversed = NULL;
+	while (frags) {
+		Fragment *frag = frags;
+		frags = frags->next;
+		reversed = prepend_nursery_frag (reversed, frag);
+	}
+
+	return reversed;
+}
+
+static void
+build_nursery_fragments (void **pinned, int num_pinned)
+{
+	Fragment *frags, *frag;
+
+	/* free old nursery fragments */
+	while (nursery_fragments) {
+		Fragment *frag = nursery_fragments;
+		nursery_fragments = frag->next;
+		free_fragment (frag);
+	}
+
+	/* build the new ones */
+	frags = build_nursery_section_fragments (nursery_section, pinned, num_pinned, &nursery_last_pinned_end);
+
+	/* count the bytes */
+	fragment_total = 0;
+	for (frag = frags; frag; frag = frag->next)
+		fragment_total += frag->fragment_end - frag->fragment_start;
+
+	if (!frags) {
+		DEBUG (1, fprintf (gc_debug_file, "Nursery fully pinned (%d)\n", num_pinned));
 		degraded_mode = 1;
 	}
 
-	NURSERY_NEXT = nursery_frag_real_end = NULL;
+	nursery_fragments = frags;
+
+	nursery_section->next_data = nursery_frag_real_end = NULL;
 
 	/* Clear TLABs for all threads */
 	clear_tlabs ();
@@ -3306,7 +3365,7 @@ commit_stats (int generation)
  * collection.
  */
 static gboolean
-collect_nursery (size_t requested_size)
+collect_nursery (gboolean evacuate_to_major)
 {
 	size_t max_garbage_amount;
 	int i;
@@ -3349,16 +3408,20 @@ collect_nursery (size_t requested_size)
 	if (xdomain_checks)
 		check_for_xdomain_refs ();
 
-	if (!to_space_section) {
-		new_to_space_section ();
+	if (evacuate_to_major) {
+		to_space_expand = to_space_expand_with_major_sections;
+		if (!to_space_section) {
+			new_to_space_section ();
+		} else {
+			/* we might have done degraded allocation
+			   since the last collection */
+			g_assert (to_space_bumper <= to_space_section->next_data);
+			set_to_space_section (to_space_section);
+		}
 	} else {
-		/* we might have done degraded allocation since the
-		   last collection */
-		g_assert (to_space_bumper <= to_space_section->next_data);
-		to_space_bumper = to_space_section->next_data;
-
-		to_space_section->is_to_space = TRUE;
+		to_space_expand = to_space_expand_with_inactive_fragments;
 	}
+
 	gray_object_queue_init ();
 
 	num_minor_gcs++;
@@ -3409,7 +3472,7 @@ collect_nursery (size_t requested_size)
 	 * pinned objects as we go, memzero() the empty fragments so they are ready for the
 	 * next allocations.
 	 */
-	build_nursery_fragments (0, next_pin_slot);
+	build_nursery_fragments (pin_queue, next_pin_slot);
 	TV_GETTIME (atv);
 	DEBUG (2, fprintf (gc_debug_file, "Fragment creation: %d usecs, %zd bytes available\n", TV_ELAPSED (btv, atv), fragment_total));
 
@@ -3425,7 +3488,6 @@ collect_nursery (size_t requested_size)
 		dump_heap ("minor", num_minor_gcs - 1, NULL);
 
 	/* prepare the pin queue for the next collection */
-	last_num_pinned = next_pin_slot;
 	next_pin_slot = 0;
 	if (fin_ready_list || critical_fin_list) {
 		DEBUG (4, fprintf (gc_debug_file, "Finalizer-thread wakeup: ready %d\n", num_ready_finalizers));
@@ -3476,6 +3538,8 @@ major_collection (const char *reason)
 	binary_protocol_collection (GENERATION_OLD);
 	check_scan_starts ();
 
+	to_space_expand = to_space_expand_with_major_sections;
+
 	degraded_mode = 0;
 	DEBUG (1, fprintf (gc_debug_file, "Start major collection %d\n", num_major_gcs));
 	num_major_gcs++;
@@ -3500,7 +3564,7 @@ major_collection (const char *reason)
 	 * it is not ideal specially with large heaps.
 	 */
 	if (g_getenv ("MONO_GC_NO_MAJOR")) {
-		collect_nursery (0);
+		collect_nursery (TRUE);
 		return;
 	}
 	TV_GETTIME (all_atv);
@@ -3623,6 +3687,7 @@ major_collection (const char *reason)
 	/* all the objects in the heap */
 	finish_gray_stack (heap_start, heap_end, GENERATION_OLD);
 
+	/* FIXME: this is probably not necessary */
 	unset_to_space ();
 
 	/* sweep the big objects list */
@@ -3683,7 +3748,8 @@ major_collection (const char *reason)
 	 * pinned objects as we go, memzero() the empty fragments so they are ready for the
 	 * next allocations.
 	 */
-	build_nursery_fragments (nursery_section->pin_queue_start, nursery_section->pin_queue_end);
+	build_nursery_fragments (pin_queue + nursery_section->pin_queue_start,
+			nursery_section->pin_queue_end - nursery_section->pin_queue_start);
 
 	TV_GETTIME (all_btv);
 	mono_stats.major_gc_time_usecs += TV_ELAPSED (all_atv, all_btv);
@@ -3768,18 +3834,14 @@ minor_collect_or_expand_inner (size_t size)
 
 	if (do_minor_collection) {
 		stop_world ();
-		if (collect_nursery (size))
+		if (collect_nursery (TRUE))
 			major_collection ("minor overflow");
 		DEBUG (2, fprintf (gc_debug_file, "Heap size: %zd, LOS size: %zd\n", total_alloc, los_memory_usage));
 		restart_world ();
 		/* this also sets the proper pointers for the next allocation */
 		if (!search_fragment_for_size (size)) {
-			int i;
 			/* TypeBuilder and MonoMethod are killing mcs with fragmentation */
-			DEBUG (1, fprintf (gc_debug_file, "nursery collection didn't find enough room for %zd alloc (%d pinned)\n", size, last_num_pinned));
-			for (i = 0; i < last_num_pinned; ++i) {
-				DEBUG (3, fprintf (gc_debug_file, "Bastard pinning obj %p (%s), size: %d\n", pin_queue [i], safe_name (pin_queue [i]), safe_object_get_size (pin_queue [i])));
-			}
+			DEBUG (1, fprintf (gc_debug_file, "nursery collection didn't find enough room for %zd alloc\n", size));
 			degraded_mode = 1;
 		}
 	}
@@ -4294,8 +4356,7 @@ search_fragment_for_size (size_t size)
 			nursery_frag_real_end = frag->fragment_end;
 
 			DEBUG (4, fprintf (gc_debug_file, "Using nursery fragment %p-%p, size: %zd (req: %zd)\n", NURSERY_NEXT, nursery_frag_real_end, nursery_frag_real_end - NURSERY_NEXT, size));
-			frag->next = fragment_freelist;
-			fragment_freelist = frag;
+			free_fragment (frag);
 			return TRUE;
 		}
 		prev = frag;
@@ -4359,7 +4420,7 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	if (G_UNLIKELY (collect_before_allocs)) {
 		if (nursery_section) {
 			stop_world ();
-			collect_nursery (0);
+			collect_nursery (TRUE);
 			restart_world ();
 			if (!degraded_mode && !search_fragment_for_size (size)) {
 				// FIXME:
@@ -7079,7 +7140,7 @@ mono_gc_collect (int generation)
 	LOCK_GC;
 	stop_world ();
 	if (generation == 0) {
-		collect_nursery (0);
+		collect_nursery (TRUE);
 	} else {
 		major_collection ("user request");
 	}
