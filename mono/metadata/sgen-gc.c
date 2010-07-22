@@ -3407,6 +3407,8 @@ major_do_collection (const char *reason)
 	TV_GETTIME (all_atv);
 	TV_GETTIME (atv);
 
+	major_start_major_collection ();
+
 	/* Pinning depends on this */
 	clear_nursery_fragments (nursery_next);
 
@@ -7883,7 +7885,7 @@ mono_gc_is_disabled (void)
 gboolean
 mono_sgen_is_worker_thread (pthread_t thread)
 {
-	return FALSE;
+	return major_is_worker_thread (thread);
 }
 
 #endif /* HAVE_SGEN_GC */
