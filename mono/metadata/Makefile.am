@@ -168,6 +168,7 @@ libmonoruntime_la_SOURCES = \
 	sgen-gc.c		\
 	sgen-internal.c		\
 	sgen-marksweep.c	\
+	sgen-major-copying.c	\
 	sgen-gc.h		\
 	sgen-archdep.h		\
 	sgen-scan-object.h	\

@@ -121,6 +121,41 @@ struct _SgenBlock {
 };
 
 /*
+ * The nursery section and the major copying collector's sections use
+ * this struct.
+ */
+typedef struct _GCMemSection GCMemSection;
+struct _GCMemSection {
+	SgenBlock block;
+	char *data;
+	mword size;
+	/* pointer where more data could be allocated if it fits */
+	char *next_data;
+	char *end_data;
+	/*
+	 * scan starts is an array of pointers to objects equally spaced in the allocation area
+	 * They let use quickly find pinned objects from pinning pointers.
+	 */
+	char **scan_starts;
+	/* in major collections indexes in the pin_queue for objects that pin this section */
+	void **pin_queue_start;
+	int pin_queue_num_entries;
+	unsigned short num_scan_start;
+	gboolean is_to_space;
+};
+
+#define SGEN_SIZEOF_GC_MEM_SECTION	((sizeof (GCMemSection) + 7) & ~7)
+
+/*
+ * to quickly find the head of an object pinned by a conservative
+ * address we keep track of the objects allocated for each
+ * SGEN_SCAN_START_SIZE memory chunk in the nursery or other memory
+ * sections. Larger values have less memory overhead and bigger
+ * runtime cost. 4-8 KB are reasonable values.
+ */
+#define SGEN_SCAN_START_SIZE (4096*2)
+
+/*
  * Objects bigger then this go into the large object space.  This size
  * has a few constraints.  It must fit into the major heap, which in
  * the case of the copying collector means that it must fit into a
@@ -206,6 +241,13 @@ const static int restart_signal_num = SIGXCPU;
 /* returns NULL if not forwarded, or the forwarded address */
 #define SGEN_OBJECT_IS_FORWARDED(obj) (((mword*)(obj))[0] & SGEN_FORWARDED_BIT ? (void*)(((mword*)(obj))[0] & ~SGEN_VTABLE_BITS_MASK) : NULL)
 #define SGEN_OBJECT_IS_PINNED(obj) (((mword*)(obj))[0] & SGEN_PINNED_BIT)
+
+#define SGEN_PIN_OBJECT(obj) do {	\
+		((mword*)(obj))[0] |= SGEN_PINNED_BIT;	\
+	} while (0)
+#define SGEN_UNPIN_OBJECT(obj) do {	\
+		((mword*)(obj))[0] &= ~SGEN_PINNED_BIT;	\
+	} while (0)
 
 /*
  * Since we set bits in the vtable, use the macro to load it from the pointer to
@@ -320,6 +362,9 @@ void mono_sgen_update_heap_boundaries (mword low, mword high) MONO_INTERNAL;
 void mono_sgen_register_major_sections_alloced (int num_sections) MONO_INTERNAL;
 mword mono_sgen_get_minor_collection_allowance (void) MONO_INTERNAL;
 
+void mono_sgen_scan_area_with_callback (char *start, char *end, IterateObjectCallbackFunc callback, void *data) MONO_INTERNAL;
+void mono_sgen_check_section_scan_starts (GCMemSection *section) MONO_INTERNAL;
+
 /* Keep in sync with mono_sgen_dump_internal_mem_usage() in dump_heap()! */
 enum {
 	INTERNAL_MEM_MANAGED,
@@ -358,6 +403,7 @@ const char* mono_sgen_internal_mem_type_name (int type) MONO_INTERNAL;
 void mono_sgen_report_internal_mem_usage (void) MONO_INTERNAL;
 void mono_sgen_report_internal_mem_usage_full (SgenInternalAllocator *alc) MONO_INTERNAL;
 void mono_sgen_dump_internal_mem_usage (FILE *heap_dump_file) MONO_INTERNAL;
+void mono_sgen_dump_section (GCMemSection *section, const char *type) MONO_INTERNAL;
 void mono_sgen_dump_occupied (char *start, char *end, char *section_start) MONO_INTERNAL;
 
 void mono_sgen_register_fixed_internal_mem_type (int type, size_t size) MONO_INTERNAL;
@@ -377,7 +423,12 @@ void mono_sgen_internal_scan_objects (SgenInternalAllocator *alc, IterateObjectC
 void mono_sgen_internal_scan_pinned_objects (SgenInternalAllocator *alc, IterateObjectCallbackFunc callback, void *callback_data) MONO_INTERNAL;
 
 void** mono_sgen_find_optimized_pin_queue_area (void *start, void *end, int *num) MONO_INTERNAL;
+void mono_sgen_find_section_pin_queue_start_end (GCMemSection *section) MONO_INTERNAL;
+void mono_sgen_pin_objects_in_section (GCMemSection *section, SgenGrayQueue *queue) MONO_INTERNAL;
 
+void mono_sgen_pin_stats_register_object (char *obj, size_t size);
+
+void* mono_sgen_copy_object_no_checks (void *obj, SgenGrayQueue *queue) MONO_INTERNAL;
 void mono_sgen_par_copy_object_no_checks (char *destination, MonoVTable *vt, void *obj, mword objsize, SgenGrayQueue *queue) MONO_INTERNAL;
 
 /* FIXME: this should be inlined */
@@ -414,5 +465,6 @@ struct _SgenMajorCollector {
 };
 
 void mono_sgen_marksweep_init (SgenMajorCollector *collector, int nursery_bits, char *nursery_start, char *nursery_end) MONO_INTERNAL;
+void mono_sgen_copying_init (SgenMajorCollector *collector, int the_nursery_bits, char *the_nursery_start, char *the_nursery_end) MONO_INTERNAL;
 
 #endif /* __MONO_SGENGC_H__ */
