@@ -40,6 +40,12 @@
 //#define HEAVY_STATISTICS
 
 /*
+ * This turns on the old LOS manager, which simply allocates new pages
+ * from the OS for each object.
+ */
+#define SGEN_SIMPLE_LOS
+
+/*
  * If this is set, the nursery is aligned to an address aligned to its size, ie.
  * a 1MB nursery will be aligned to an address divisible by 1MB. This allows us to
  * speed up ptr_in_nursery () checks which are very frequent. This requires the

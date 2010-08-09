@@ -45,6 +45,87 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+typedef struct _LOSObject LOSObject;
+struct _LOSObject {
+	LOSObject *next;
+	mword size; /* this is the object size */
+	guint16 role;
+	int dummy; /* to have a sizeof (LOSObject) a multiple of ALLOC_ALIGN  and data starting at same alignment */
+	char data [MONO_ZERO_LEN_ARRAY];
+};
+
+static LOSObject *los_object_list = NULL;
+static mword last_los_memory_usage = 0;
+static mword los_num_objects = 0;
+static mword los_memory_usage = 0;
+
+#ifdef SGEN_SIMPLE_LOS
+
+static void
+free_large_object (LOSObject *obj)
+{
+	size_t size = obj->size;
+	DEBUG (4, fprintf (gc_debug_file, "Freed large object %p, size %zu\n", obj->data, (size_t)obj->size));
+	binary_protocol_empty (obj->data, obj->size);
+
+	los_memory_usage -= size;
+	size += sizeof (LOSObject);
+	size += pagesize - 1;
+	size &= ~(pagesize - 1);
+	total_alloc -= size;
+	los_num_objects--;
+	mono_sgen_free_os_memory (obj, size);
+}
+
+/*
+ * Objects with size >= 64KB are allocated in the large object space.
+ * They are currently kept track of with a linked list.
+ * They don't move, so there is no need to pin them during collection
+ * and we avoid the memcpy overhead.
+ */
+static void* __attribute__((noinline))
+alloc_large_inner (MonoVTable *vtable, size_t size)
+{
+	LOSObject *obj;
+	void **vtslot;
+	size_t alloc_size;
+
+	g_assert (size > SGEN_MAX_SMALL_OBJ_SIZE);
+
+	if (need_major_collection ()) {
+		DEBUG (4, fprintf (gc_debug_file, "Should trigger major collection: req size %zd (los already: %zu)\n", size, (size_t)los_memory_usage));
+		stop_world ();
+		major_collection ("LOS overflow");
+		restart_world ();
+	}
+	alloc_size = size;
+	alloc_size += sizeof (LOSObject);
+	alloc_size += pagesize - 1;
+	alloc_size &= ~(pagesize - 1);
+	/* FIXME: handle OOM */
+	obj = mono_sgen_alloc_os_memory (alloc_size, TRUE);
+	g_assert (!((mword)obj->data & (SGEN_ALLOC_ALIGN - 1)));
+	obj->size = size;
+	vtslot = (void**)obj->data;
+	*vtslot = vtable;
+	total_alloc += alloc_size;
+	mono_sgen_update_heap_boundaries ((mword)obj->data, (mword)(char*)obj->data + size);
+	obj->next = los_object_list;
+	los_object_list = obj;
+	los_memory_usage += size;
+	los_num_objects++;
+	DEBUG (4, fprintf (gc_debug_file, "Allocated large object %p, vtable: %p (%s), size: %zd\n", obj->data, vtable, vtable->klass->name, size));
+	binary_protocol_alloc (obj->data, vtable, size);
+	return obj->data;
+}
+
+static void
+los_sweep (void)
+{
+}
+
+#else
+
 #define LOS_SECTION_SIZE	(1024 * 1024)
 
 /*
@@ -64,15 +145,6 @@
 
 #define LOS_NUM_FAST_SIZES		32
 
-typedef struct _LOSObject LOSObject;
-struct _LOSObject {
-	LOSObject *next;
-	mword size; /* this is the object size */
-	guint16 role;
-	int dummy; /* to have a sizeof (LOSObject) a multiple of ALLOC_ALIGN  and data starting at same alignment */
-	char data [MONO_ZERO_LEN_ARRAY];
-};
-
 typedef struct _LOSFreeChunks LOSFreeChunks;
 struct _LOSFreeChunks {
 	LOSFreeChunks *next_size;
@@ -87,11 +159,7 @@ struct _LOSSection {
 };
 
 static LOSSection *los_sections = NULL;
-static LOSObject *los_object_list = NULL;
 static LOSFreeChunks *los_fast_free_lists [LOS_NUM_FAST_SIZES]; /* 0 is for larger sizes */
-static mword los_memory_usage = 0;
-static mword last_los_memory_usage = 0;
-static mword los_num_objects = 0;
 static int los_num_sections = 0;
 static mword next_los_collection = 2*1024*1024; /* 2 MB, need to tune */
 
@@ -449,3 +517,4 @@ los_sweep (void)
 
 	g_assert (los_num_sections == num_sections);
 }
+#endif
