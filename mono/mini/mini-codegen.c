@@ -716,16 +716,12 @@ get_register_force_spilling (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst **la
 #define G_GUINT64_FORMAT "ul"
 #endif
 
-static int
-get_register_spilling (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst **last, MonoInst *ins, regmask_t regmask, int reg, int bank)
+static regmask_t
+calculate_regmask (MonoCompile *cfg, MonoInst *ins, regmask_t regmask, int reg, int bank)
 {
-	MonoInst *load;
-	int i, sel, spill, num_sregs;
+	int i, num_sregs;
 	int sregs [MONO_MAX_SRC_REGS];
-	int *symbolic;
 	MonoRegState *rs = cfg->rs;
-
-	symbolic = rs->symbolic [bank];
 
 	g_assert (bank < MONO_NUM_REGBANKS);
 
@@ -747,6 +743,21 @@ get_register_spilling (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst **last, Mo
 	}
 
 	DEBUG (printf ("\t\tavailable regmask: 0x%08" G_GUINT64_FORMAT "\n", (guint64)regmask));
+
+	return regmask;
+}
+
+static int
+get_register_spilling (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst **last, MonoInst *ins, regmask_t regmask, int reg, int bank)
+{
+	MonoInst *load;
+	int i, sel, spill;
+	int *symbolic;
+	MonoRegState *rs = cfg->rs;
+
+	symbolic = rs->symbolic [bank];
+
+	regmask = calculate_regmask (cfg, ins, regmask, reg, bank);
 	g_assert (regmask); /* need at least a register we can free */
 	sel = 0;
 	/* we should track prev_use and spill the register that's farther */
