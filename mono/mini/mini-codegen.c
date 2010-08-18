@@ -669,6 +669,19 @@ insert_after_ins (MonoBasicBlock *bb, MonoInst *ins, MonoInst **last, MonoInst* 
 	*last = to_insert;
 }
 
+static MonoInst*
+create_spill_load (MonoCompile *cfg, int spill, int hreg, int bank)
+{
+	MonoInst *load;
+
+	MONO_INST_NEW (cfg, load, regbank_load_ops [bank]);
+	load->dreg = hreg;
+	load->inst_basereg = cfg->frame_reg;
+	load->inst_offset = mono_spillvar_offset (cfg, spill, bank);
+
+	return load;
+}
+
 /*
  * Force the spilling of the variable in the symbolic register 'reg'.
  */
@@ -696,10 +709,7 @@ get_register_force_spilling (MonoCompile *cfg, MonoBasicBlock *bb, MonoInst **la
 	else
 		mono_regstate_free_int (rs, sel);
 	/* we need to create a spill var and insert a load to sel after the current instruction */
-	MONO_INST_NEW (cfg, load, regbank_load_ops [bank]);
-	load->dreg = sel;
-	load->inst_basereg = cfg->frame_reg;
-	load->inst_offset = mono_spillvar_offset (cfg, spill, bank);
+	load = create_spill_load (cfg, spill, sel, bank);
 	insert_after_ins (bb, ins, last, load);
 	DEBUG (printf ("SPILLED LOAD (%d at 0x%08lx(%%ebp)) R%d (freed %s)\n", spill, (long)load->inst_offset, i, mono_regname_full (sel, bank)));
 	if (G_UNLIKELY (bank))
