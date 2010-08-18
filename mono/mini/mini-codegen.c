@@ -1480,22 +1480,84 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 		}
 
 		if (is_soft_reg (ins->dreg, bank)) {
+			gboolean finish = FALSE;
+
 			val = rs->vassign [ins->dreg];
 
 			if (val < 0) {
 				int spill = 0;
+				int conflict_spill = 0;
+				int conflict_hreg = -1;
 				if (val < -1) {
 					/* the register gets spilled after this inst */
 					spill = -val -1;
 				}
-				val = alloc_reg (cfg, bb, tmp, ins, dreg_mask, ins->dreg, &reginfo [ins->dreg], bank);
-				assign_reg (cfg, rs, ins->dreg, val, bank);
+				if (calculate_regmask (cfg, ins, dreg_mask, ins->dreg, bank) == 0) {
+					/*
+					 * If the regmask is empty it means that all available
+					 * registers are already used as a source.  This can happen
+					 * for CAS on x86 which has 3 arguments and we only have 3
+					 * registers available.  We must use one of the registers as
+					 * a source as well as the destination, which requires a few
+					 * adjustments.
+					 */
+					int sreg = -1;
+					MonoInst *store;
+
+					g_assert (dreg_fixed_mask);
+					g_assert (num_sregs);
+					g_assert (!MONO_ARCH_INST_IS_REGPAIR (spec_dest));
+
+					for (j = 0; j < num_sregs; ++j) {
+						sreg = sregs [j];
+						conflict_hreg = dest_sregs [j];
+
+						if (conflict_hreg >= 0 && (regmask (conflict_hreg) & dreg_fixed_mask)) {
+							DEBUG (printf ("\toffending sreg %d (%s) - dreg %d\n",
+									j, mono_regname_full (conflict_hreg, bank), prev_dreg));
+							break;
+						}
+					}
+
+					g_assert (j < num_sregs);
+
+					val = conflict_hreg;
+
+					/*
+					 * We generate two additional instruction: One before the
+					 * current instruction to store the value of the conflicting
+					 * source register and one, below, after the current
+					 * instruction, to load it back.
+					 */
+					conflict_spill = ++cfg->spill_count;
+					store = create_spilled_store (cfg, bb, conflict_spill, conflict_hreg, sreg, tmp, NULL, bank);
+					insert_before_ins (bb, ins, store);
+
+					finish = TRUE;
+				} else {
+					val = alloc_reg (cfg, bb, tmp, ins, dreg_mask, ins->dreg, &reginfo [ins->dreg], bank);
+					assign_reg (cfg, rs, ins->dreg, val, bank);
+				}
+
 				if (spill)
 					create_spilled_store (cfg, bb, spill, val, prev_dreg, tmp, ins, bank);
+
+				if (conflict_spill) {
+					/*
+					 * This is where we re-load the conflicting source register.
+					 * Note that if the result of the operation is needed, it
+					 * will have been spilled in the if-clause above.
+					 */
+					MonoInst *load = create_spill_load (cfg, conflict_spill, conflict_hreg, bank);
+					insert_after_ins (bb, NULL, tmp, load);
+				}
 			}
 
 			DEBUG (printf ("\tassigned dreg %s to dest R%d\n", mono_regname_full (val, bank), ins->dreg));
 			ins->dreg = val;
+
+			if (finish)
+				goto dreg_finished;
 		}
 
 		/* Handle regpairs */
@@ -1593,6 +1655,7 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 					sreg_masks [j] &= ~ (regmask (ins->dreg));
 		}
 
+	dreg_finished:
 		/*
 		 * TRACK CLOBBERING
 		 */

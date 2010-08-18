@@ -117,7 +117,7 @@ struct sigcontext {
 
 #define MONO_ARCH_INST_FIXED_REG(desc) (((desc == ' ') || (desc == 'i')) ? -1 : ((desc == 's') ? X86_ECX : ((desc == 'a') ? X86_EAX : ((desc == 'd') ? X86_EDX : ((desc == 'l') ? X86_EAX : -1)))))
 
-#define MONO_ARCH_INST_FIXED_MASK(desc) ((desc == 'y') ? (X86_BYTE_REGS) : 0)
+#define MONO_ARCH_INST_FIXED_MASK(desc) ((desc == 'y') ? (X86_BYTE_REGS) : (((desc) == 'a') ? (1 << X86_EAX) : 0))
 
 /* RDX is clobbered by the opcode implementation before accessing sreg2 */
 /* 
