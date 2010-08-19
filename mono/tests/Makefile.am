@@ -364,6 +364,7 @@ BASE_TEST_CS_SRC=		\
 	gchandles.cs	\
 	interlocked-3.cs	\
 	interlocked-4.2.cs	\
+	interlocked-5.cs	\
 	finalizer-wait.cs	\
 	critical-finalizers.cs	\
 	appdomain-thread-abort.cs \
