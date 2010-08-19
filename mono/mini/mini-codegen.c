@@ -1306,8 +1306,14 @@ mono_local_regalloc (MonoCompile *cfg, MonoBasicBlock *bb)
 							DEBUG (printf ("\tshortcut assignment of R%d to %s\n", sreg, mono_arch_regname (dest_sreg)));
 							assign_reg (cfg, rs, sreg, dest_sreg, 0);
 						} else if (val < -1) {
-							/* FIXME: */
-							g_assert_not_reached ();
+							MonoInst *store;
+							int spill;
+							/* Need to emit a spill store */
+							spill = -val - 1;
+							store = create_spilled_store (cfg, bb, spill, dest_sreg, sreg, tmp, NULL, bank);
+							insert_before_ins (bb, ins, store);
+							/* force-set sreg */
+							assign_reg (cfg, rs, sregs [j], dest_sreg, 0);
 						} else {
 							/* Argument already in hard reg, need to copy */
 							MonoInst *copy = create_copy_ins (cfg, bb, tmp, dest_sreg, val, NULL, ip, 0);
