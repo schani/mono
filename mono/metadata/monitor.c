@@ -125,14 +125,28 @@ mono_monitor_init (void)
 void
 mono_monitor_cleanup (void)
 {
+	MonoThreadsSync *mon;
 	MonitorArray *marray, *next = NULL;
 
 	/*DeleteCriticalSection (&monitor_mutex);*/
 
+	/* The monitors on the freelist don't have weak links - mark them */
+	for (mon = monitor_freelist; mon; mon = mon->data)
+		mon->wait_list = (gpointer)-1;
+
 	for (marray = monitor_allocated; marray; marray = next) {
+		int i;
+
+		for (i = 0; i < marray->num_monitors; ++i) {
+			mon = &marray->monitors [i];
+			if (mon->wait_list != (gpointer)-1)
+				mono_gc_weak_link_remove (&mon->data);
+		}
+
 		next = marray->next;
 		g_free (marray);
 	}
+	monitor_allocated = NULL;
 }
 
 /*
@@ -252,6 +266,7 @@ mon_new (gsize id)
 							new->wait_list = g_slist_remove (new->wait_list, new->wait_list->data);
 						}
 					}
+					mono_gc_weak_link_remove (&new->data);
 					new->data = monitor_freelist;
 					monitor_freelist = new;
 				}
@@ -743,6 +758,9 @@ mono_monitor_get_object_monitor_weak_link (MonoObject *object)
 	LockWord lw;
 	MonoThreadsSync *sync = NULL;
 
+	/* This can happen during shutdown */
+	if (!monitor_allocated)
+		return NULL;
 	lw.sync = object->synchronisation;
 	if (lw.lock_word & LOCK_WORD_FAT_HASH) {
 		lw.lock_word &= ~LOCK_WORD_BITS_MASK;
