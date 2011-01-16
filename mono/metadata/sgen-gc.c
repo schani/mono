@@ -202,6 +202,7 @@
 #include "metadata/sgen-cardtable.h"
 #include "metadata/sgen-protocol.h"
 #include "metadata/sgen-archdep.h"
+#include "metadata/sgen-bridge.h"
 #include "metadata/mono-gc.h"
 #include "metadata/method-builder.h"
 #include "metadata/profiler-private.h"
@@ -2455,6 +2456,28 @@ get_finalize_entry_hash_table (int generation)
 	}
 }
 
+static MonoObject **finalized_array = NULL;
+static int finalized_array_capacity = 0;
+static int finalized_array_entries = 0;
+
+static void
+bridge_register_finalized_object (MonoObject *object)
+{
+	if (!finalized_array)
+		return;
+
+	if (finalized_array_entries >= finalized_array_capacity) {
+		MonoObject **new_array;
+		g_assert (finalized_array_entries == finalized_array_capacity);
+		finalized_array_capacity *= 2;
+		new_array = mono_sgen_alloc_internal_dynamic (sizeof (MonoObject*) * finalized_array_capacity, INTERNAL_MEM_BRIDGE_DATA);
+		memcpy (new_array, finalized_array, sizeof (MonoObject*) * finalized_array_entries);
+		mono_sgen_free_internal_dynamic (finalized_array, sizeof (MonoObject*) * finalized_array_entries, INTERNAL_MEM_BRIDGE_DATA);
+		finalized_array = new_array;
+	}
+	finalized_array [finalized_array_entries++] = object;
+}
+
 static void
 finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *queue)
 {
@@ -2480,6 +2503,13 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *
 	drain_gray_stack (queue);
 	TV_GETTIME (atv);
 	DEBUG (2, fprintf (gc_debug_file, "%s generation done\n", generation_name (generation)));
+
+	if (finalized_array == NULL && mono_sgen_need_bridge_processing ()) {
+		finalized_array_capacity = 32;
+		finalized_array = mono_sgen_alloc_internal_dynamic (sizeof (MonoObject*) * finalized_array_capacity, INTERNAL_MEM_BRIDGE_DATA);
+	}
+	finalized_array_entries = 0;
+
 	/* walk the finalization queue and move also the objects that need to be
 	 * finalized: use the finalized objects as new roots so the objects they depend
 	 * on are also not reclaimed. As with the roots above, only objects in the nursery
@@ -2540,6 +2570,9 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *
 	}
 
 	g_assert (gray_object_queue_is_empty (queue));
+
+	if (finalized_array != NULL)
+		mono_sgen_bridge_processing (finalized_array_entries, finalized_array);
 }
 
 void
@@ -4073,6 +4106,7 @@ finalize_in_range (CopyOrMarkObjectFunc copy_func, char *start, char *end, int g
 					num_ready_finalizers++;
 					hash_table->num_registered--;
 					queue_finalization_entry (entry);
+					bridge_register_finalized_object ((MonoObject*)copy);
 					/* Make it survive */
 					from = entry->object;
 					entry->object = copy;
@@ -4125,6 +4159,16 @@ object_is_reachable (char *object, char *start, char *end)
 	if (object < start || object >= end)
 		return TRUE;
 	return !object_is_fin_ready (object) || major_collector.is_object_live (object);
+}
+
+gboolean
+mono_sgen_object_is_live (void *obj)
+{
+	if (ptr_in_nursery (obj))
+		return object_is_pinned (obj);
+	if (current_collection_generation == GENERATION_NURSERY)
+		return FALSE;
+	return major_collector.is_object_live (obj);
 }
 
 /* LOCKING: requires that the GC lock is held */
@@ -6910,6 +6954,29 @@ mono_gc_is_gc_thread (void)
 	return result;
 }
 
+static gboolean
+bridge_test_is_bridge_object (MonoObject *obj)
+{
+	return TRUE;
+}
+
+static void
+bridge_test_cross_reference (int num_sccs, MonoGCBridgeSCC **sccs, int num_xrefs, MonoGCBridgeXRef *xrefs)
+{
+	int i;
+	for (i = 0; i < num_sccs; ++i) {
+		int j;
+		g_print ("--- SCC %d\n", i);
+		for (j = 0; j < sccs [i]->num_objs; ++j)
+			g_print ("  %s\n", safe_name (sccs [i]->objs [j]));
+	}
+	for (i = 0; i < num_xrefs; ++i) {
+		g_assert (xrefs [i].src_scc_index >= 0 && xrefs [i].src_scc_index < num_sccs);
+		g_assert (xrefs [i].dst_scc_index >= 0 && xrefs [i].dst_scc_index < num_sccs);
+		g_print ("%d -> %d\n", xrefs [i].src_scc_index, xrefs [i].dst_scc_index);
+	}
+}
+
 void
 mono_gc_base_init (void)
 {
@@ -7170,6 +7237,15 @@ mono_gc_base_init (void)
 	gc_initialized = TRUE;
 	UNLOCK_GC;
 	mono_gc_register_thread (&sinfo);
+
+	/*
+	{
+		MonoGCBridgeCallbacks callbacks;
+		callbacks.is_bridge_object = bridge_test_is_bridge_object;
+		callbacks.cross_references = bridge_test_cross_reference;
+		mono_gc_register_bridge_callbacks (&callbacks);
+	}
+	*/
 }
 
 int

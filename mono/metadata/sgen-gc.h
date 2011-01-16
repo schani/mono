@@ -262,7 +262,7 @@ typedef struct {
  */
 #define SGEN_FORWARDED_BIT 1
 #define SGEN_PINNED_BIT 2
-#define SGEN_VTABLE_BITS_MASK 0x3
+#define SGEN_VTABLE_BITS_MASK 0x7
 
 /* returns NULL if not forwarded, or the forwarded address */
 #define SGEN_OBJECT_IS_FORWARDED(obj) (((mword*)(obj))[0] & SGEN_FORWARDED_BIT ? (void*)(((mword*)(obj))[0] & ~SGEN_VTABLE_BITS_MASK) : NULL)
@@ -610,6 +610,7 @@ enum {
 	INTERNAL_MEM_MS_BLOCK_INFO,
 	INTERNAL_MEM_EPHEMERON_LINK,
 	INTERNAL_MEM_WORKER_DATA,
+	INTERNAL_MEM_BRIDGE_DATA,
 	INTERNAL_MEM_MAX
 };
 
@@ -765,6 +766,8 @@ mono_sgen_par_object_get_size (MonoVTable *vtable, MonoObject* o)
 #define mono_sgen_safe_object_get_size(o)		mono_sgen_par_object_get_size ((MonoVTable*)SGEN_LOAD_VTABLE ((o)), (o))
 
 const char* mono_sgen_safe_name (void* obj) MONO_INTERNAL;
+
+gboolean mono_sgen_object_is_live (void *obj) MONO_INTERNAL;
 
 enum {
 	SPACE_MAJOR,
