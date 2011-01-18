@@ -2485,6 +2485,7 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *
 	TV_DECLARE (btv);
 	int fin_ready;
 	int ephemeron_rounds = 0;
+	int num_loops;
 	CopyOrMarkObjectFunc copy_func = current_collection_generation == GENERATION_NURSERY ? major_collector.copy_object : major_collector.copy_or_mark_object;
 
 	/*
@@ -2517,6 +2518,7 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *
 	 * We need a loop here, since objects ready for finalizers may reference other objects
 	 * that are fin-ready. Speedup with a flag?
 	 */
+	num_loops = 0;
 	do {
 		/*
 		 * Walk the ephemeron tables marking all values with reachable keys. This must be completely done
@@ -2537,10 +2539,17 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *
 		if (generation == GENERATION_OLD)
 			finalize_in_range (copy_func, nursery_start, nursery_real_end, GENERATION_NURSERY, queue);
 
+		if (fin_ready != num_ready_finalizers) {
+			++num_loops;
+			if (finalized_array != NULL)
+				mono_sgen_bridge_processing (finalized_array_entries, finalized_array);
+		}
+
 		/* drain the new stack that might have been created */
 		DEBUG (6, fprintf (gc_debug_file, "Precise scan of gray area post fin\n"));
 		drain_gray_stack (queue);
 	} while (fin_ready != num_ready_finalizers);
+	g_assert (num_loops <= 1);
 
 	/*
 	 * Clear ephemeron pairs with unreachable keys.
@@ -2570,9 +2579,6 @@ finish_gray_stack (char *start_addr, char *end_addr, int generation, GrayQueue *
 	}
 
 	g_assert (gray_object_queue_is_empty (queue));
-
-	if (finalized_array != NULL)
-		mono_sgen_bridge_processing (finalized_array_entries, finalized_array);
 }
 
 void

@@ -262,7 +262,7 @@ typedef struct {
  */
 #define SGEN_FORWARDED_BIT 1
 #define SGEN_PINNED_BIT 2
-#define SGEN_VTABLE_BITS_MASK 0x7
+#define SGEN_VTABLE_BITS_MASK 0x3
 
 /* returns NULL if not forwarded, or the forwarded address */
 #define SGEN_OBJECT_IS_FORWARDED(obj) (((mword*)(obj))[0] & SGEN_FORWARDED_BIT ? (void*)(((mword*)(obj))[0] & ~SGEN_VTABLE_BITS_MASK) : NULL)
