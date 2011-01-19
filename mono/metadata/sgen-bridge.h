@@ -21,7 +21,12 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifdef HAVE_SGEN_GC
+#ifndef _MONO_SGEN_BRIDGE_H_
+#define _MONO_SGEN_BRIDGE_H_
+
+#include <mono/utils/mono-publib.h>
+
+MONO_BEGIN_DECLS
 
 typedef struct {
 	int num_objs;
@@ -34,13 +39,12 @@ typedef struct {
 } MonoGCBridgeXRef;
 
 typedef struct {
-	gboolean (*is_bridge_object) (MonoObject *obj);
+	mono_bool (*is_bridge_object) (MonoObject *obj);
 	void (*cross_references) (int num_sccs, MonoGCBridgeSCC **sccs, int num_xrefs, MonoGCBridgeXRef *xrefs);
 } MonoGCBridgeCallbacks;
 
-gboolean mono_sgen_need_bridge_processing (void) MONO_INTERNAL;
-void mono_sgen_bridge_processing (int num_objs, MonoObject **objs) MONO_INTERNAL;
-
 void mono_gc_register_bridge_callbacks (MonoGCBridgeCallbacks *callbacks);
+
+MONO_END_DECLS
 
 #endif

@@ -769,6 +769,9 @@ const char* mono_sgen_safe_name (void* obj) MONO_INTERNAL;
 
 gboolean mono_sgen_object_is_live (void *obj) MONO_INTERNAL;
 
+gboolean mono_sgen_need_bridge_processing (void) MONO_INTERNAL;
+void mono_sgen_bridge_processing (int num_objs, MonoObject **objs) MONO_INTERNAL;
+
 enum {
 	SPACE_MAJOR,
 	SPACE_LOS
