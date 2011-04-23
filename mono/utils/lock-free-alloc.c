@@ -26,8 +26,8 @@ enum {
 typedef union {
 	gint32 value;
 	struct {
-		guint32 avail : 10;
-		guint32 count : 10;
+		guint32 avail : 15;
+		guint32 count : 15;
 		guint32 state : 2;
 	} data;
 } Anchor;
