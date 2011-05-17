@@ -590,8 +590,8 @@ char* mono_sgen_gray_object_dequeue (SgenGrayQueue *queue) MONO_INTERNAL;
 
 typedef void (*IterateObjectCallbackFunc) (char*, size_t, void*);
 
-void* mono_sgen_alloc_os_memory (size_t size, int activate) MONO_INTERNAL;
-void* mono_sgen_alloc_os_memory_aligned (mword size, mword alignment, gboolean activate) MONO_INTERNAL;
+void* mono_sgen_alloc_os_memory (size_t size, int activate, gboolean huge_pages) MONO_INTERNAL;
+void* mono_sgen_alloc_os_memory_aligned (mword size, mword alignment, gboolean activate, gboolean huge_pages) MONO_INTERNAL;
 void mono_sgen_free_os_memory (void *addr, size_t size) MONO_INTERNAL;
 
 int mono_sgen_thread_handshake (int signum) MONO_INTERNAL;

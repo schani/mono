@@ -318,7 +318,7 @@ major_alloc_heap (mword nursery_size, mword nursery_align, int the_nursery_bits)
 	if (nursery_align)
 		g_assert (nursery_align % MS_BLOCK_SIZE == 0);
 
-	nursery_start = mono_sgen_alloc_os_memory_aligned (alloc_size, nursery_align ? nursery_align : MS_BLOCK_SIZE, TRUE);
+	nursery_start = mono_sgen_alloc_os_memory_aligned (alloc_size, nursery_align ? nursery_align : MS_BLOCK_SIZE, TRUE, TRUE);
 	nursery_end = heap_start = nursery_start + nursery_size;
 	nursery_bits = the_nursery_bits;
 
@@ -344,9 +344,9 @@ static void*
 major_alloc_heap (mword nursery_size, mword nursery_align, int the_nursery_bits)
 {
 	if (nursery_align)
-		nursery_start = mono_sgen_alloc_os_memory_aligned (nursery_size, nursery_align, TRUE);
+		nursery_start = mono_sgen_alloc_os_memory_aligned (nursery_size, nursery_align, TRUE, TRUE);
 	else
-		nursery_start = mono_sgen_alloc_os_memory (nursery_size, TRUE);
+		nursery_start = mono_sgen_alloc_os_memory (nursery_size, TRUE, TRUE);
 
 	nursery_end = nursery_start + nursery_size;
 	nursery_bits = the_nursery_bits;
@@ -399,7 +399,7 @@ ms_get_empty_block (void)
 
  retry:
 	if (!empty_blocks) {
-		p = mono_sgen_alloc_os_memory_aligned (MS_BLOCK_SIZE * MS_BLOCK_ALLOC_NUM, MS_BLOCK_SIZE, TRUE);
+		p = mono_sgen_alloc_os_memory_aligned (MS_BLOCK_SIZE * MS_BLOCK_ALLOC_NUM, MS_BLOCK_SIZE, TRUE, FALSE);
 
 		for (i = 0; i < MS_BLOCK_ALLOC_NUM; ++i) {
 			block = p;

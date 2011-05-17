@@ -242,7 +242,7 @@ get_los_section_memory (size_t size)
 	if (!mono_sgen_try_alloc_space (LOS_SECTION_SIZE, SPACE_LOS))
 		return NULL;
 
-	section = mono_sgen_alloc_os_memory_aligned (LOS_SECTION_SIZE, LOS_SECTION_SIZE, TRUE);
+	section = mono_sgen_alloc_os_memory_aligned (LOS_SECTION_SIZE, LOS_SECTION_SIZE, TRUE, FALSE);
 
 	free_chunks = (LOSFreeChunks*)((char*)section + LOS_CHUNK_SIZE);
 	free_chunks->size = LOS_SECTION_SIZE - LOS_CHUNK_SIZE;
@@ -346,7 +346,7 @@ mono_sgen_los_alloc_large_inner (MonoVTable *vtable, size_t size)
 
 #ifdef LOS_DUMMY
 	if (!los_segment)
-		los_segment = mono_sgen_alloc_os_memory (LOS_SEGMENT_SIZE, TRUE);
+		los_segment = mono_sgen_alloc_os_memory (LOS_SEGMENT_SIZE, TRUE, FALSE);
 	los_segment_index = ALIGN_UP (los_segment_index);
 
 	obj = (LOSObject*)(los_segment + los_segment_index);
@@ -370,7 +370,7 @@ mono_sgen_los_alloc_large_inner (MonoVTable *vtable, size_t size)
 		alloc_size += pagesize - 1;
 		alloc_size &= ~(pagesize - 1);
 		if (mono_sgen_try_alloc_space (alloc_size, SPACE_LOS)) {
-			obj = mono_sgen_alloc_os_memory (alloc_size, TRUE);
+			obj = mono_sgen_alloc_os_memory (alloc_size, TRUE, FALSE);
 			obj->huge_object = TRUE;
 		}
 	} else {

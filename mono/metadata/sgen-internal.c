@@ -82,7 +82,7 @@ mono_sgen_alloc_internal_dynamic (size_t size, int type)
 	void *p;
 
 	if (size > allocator_sizes [NUM_ALLOCATORS - 1])
-		return mono_sgen_alloc_os_memory (size, TRUE);
+		return mono_sgen_alloc_os_memory (size, TRUE, FALSE);
 
 	index = index_for_size (size);
 

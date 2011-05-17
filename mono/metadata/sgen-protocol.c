@@ -94,7 +94,7 @@ binary_protocol_get_buffer (int length)
 	if (buffer && buffer->index + length <= BINARY_PROTOCOL_BUFFER_SIZE)
 		return buffer;
 
-	new_buffer = mono_sgen_alloc_os_memory (sizeof (BinaryProtocolBuffer), TRUE);
+	new_buffer = mono_sgen_alloc_os_memory (sizeof (BinaryProtocolBuffer), TRUE, FALSE);
 	new_buffer->next = buffer;
 	new_buffer->index = 0;
 

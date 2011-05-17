@@ -175,10 +175,10 @@ sgen_card_table_is_range_marked (guint8 *cards, mword address, mword size)
 static void
 card_table_init (void)
 {
-	sgen_cardtable = mono_sgen_alloc_os_memory (CARD_COUNT_IN_BYTES, TRUE);
+	sgen_cardtable = mono_sgen_alloc_os_memory (CARD_COUNT_IN_BYTES, TRUE, FALSE);
 
 #ifdef SGEN_HAVE_OVERLAPPING_CARDS
-	sgen_shadow_cardtable = mono_sgen_alloc_os_memory (CARD_COUNT_IN_BYTES, TRUE);
+	sgen_shadow_cardtable = mono_sgen_alloc_os_memory (CARD_COUNT_IN_BYTES, TRUE, FALSE);
 #endif
 
 #ifdef HEAVY_STATISTICS

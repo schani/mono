@@ -2242,10 +2242,10 @@ add_fragment (char *start, char *end)
 
 /* size must be a power of 2 */
 void*
-mono_sgen_alloc_os_memory_aligned (mword size, mword alignment, gboolean activate)
+mono_sgen_alloc_os_memory_aligned (mword size, mword alignment, gboolean activate, gboolean huge_pages)
 {
 	/* Allocate twice the memory to be able to put the block on an aligned address */
-	char *mem = mono_sgen_alloc_os_memory (size + alignment, activate);
+	char *mem = mono_sgen_alloc_os_memory (size + alignment, activate, huge_pages);
 	char *aligned;
 
 	g_assert (mem);
@@ -3678,12 +3678,16 @@ report_internal_mem_usage (void)
  * This must not require any lock.
  */
 void*
-mono_sgen_alloc_os_memory (size_t size, int activate)
+mono_sgen_alloc_os_memory (size_t size, int activate, gboolean huge_pages)
 {
 	void *ptr;
 	unsigned long prot_flags = activate? MONO_MMAP_READ|MONO_MMAP_WRITE: MONO_MMAP_NONE;
 
 	prot_flags |= MONO_MMAP_PRIVATE | MONO_MMAP_ANON;
+	if (size >= 2048 * 1024 && huge_pages) {
+		prot_flags |= MONO_MMAP_HUGETLB;
+		g_print ("using huge pages\n");
+	}
 	size += pagesize - 1;
 	size &= ~(pagesize - 1);
 	ptr = mono_valloc (0, size, prot_flags);

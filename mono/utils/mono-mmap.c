@@ -266,6 +266,8 @@ mono_valloc (void *addr, size_t length, int flags)
 		mflags |= MAP_FIXED;
 	if (flags & MONO_MMAP_32BIT)
 		mflags |= MAP_32BIT;
+	if (flags & MONO_MMAP_HUGETLB)
+		mflags |= MAP_HUGETLB;
 
 	mflags |= MAP_ANONYMOUS;
 	mflags |= MAP_PRIVATE;
