@@ -197,6 +197,7 @@ BASE_TEST_CS_SRC=		\
 	thread.cs		\
 	thread5.cs		\
 	thread6.cs		\
+	threadabort.cs		\
 	thread-static.cs	\
 	thread-static-init.cs	\
 	context-static.cs	\

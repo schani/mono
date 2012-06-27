@@ -6505,6 +6505,8 @@ mini_init (const char *filename, const char *runtime_version)
 		mono_marshal_use_aot_wrappers (TRUE);
 	}
 
+	mono_register_cached_trampoline_unwind_infos ();
+
 #ifdef MONO_ARCH_HAVE_IMT
 	if (mono_use_imt) {
 		if (mono_aot_only)

@@ -531,6 +531,8 @@ mono_arch_create_generic_trampoline (MonoTrampolineType tramp_type, MonoTrampInf
 
 	if (info)
 		*info = mono_tramp_info_create (mono_get_generic_trampoline_name (tramp_type), buf, code - buf, ji, unwind_ops);
+	mono_register_trampoline_unwind_info (mono_get_generic_trampoline_name (tramp_type), buf, code - buf, unwind_ops);
+
 
 	if (tramp_type == MONO_TRAMPOLINE_CLASS_INIT) {
 		/* Initialize the nullified class init trampoline used in the AOT case */
@@ -684,6 +686,7 @@ mono_arch_create_rgctx_lazy_fetch_trampoline (guint32 slot, MonoTrampInfo **info
 
 	if (info)
 		*info = mono_tramp_info_create (mono_get_rgctx_fetch_trampoline_name (slot), buf, code - buf, ji, unwind_ops);
+	mono_register_trampoline_unwind_info (mono_get_rgctx_fetch_trampoline_name (slot), buf, code - buf, unwind_ops);
 
 	return buf;
 }
@@ -741,6 +744,7 @@ mono_arch_create_generic_class_init_trampoline (MonoTrampInfo **info, gboolean a
 
 	if (info)
 		*info = mono_tramp_info_create (g_strdup_printf ("generic_class_init_trampoline"), buf, code - buf, ji, unwind_ops);
+	mono_register_trampoline_unwind_info ("generic_class_init_trampoline", buf, code - buf, unwind_ops);
 
 	return buf;
 }
@@ -890,6 +894,7 @@ mono_arch_create_monitor_enter_trampoline (MonoTrampInfo **info, gboolean aot)
 
 	if (info)
 		*info = mono_tramp_info_create (g_strdup_printf ("monitor_enter_trampoline"), buf, code - buf, ji, unwind_ops);
+	mono_register_trampoline_unwind_info ("monitor_enter_trampoline", buf, code - buf, unwind_ops);
 
 	return buf;
 }
@@ -1005,6 +1010,7 @@ mono_arch_create_monitor_exit_trampoline (MonoTrampInfo **info, gboolean aot)
 
 	if (info)
 		*info = mono_tramp_info_create (g_strdup_printf ("monitor_exit_trampoline"), buf, code - buf, ji, unwind_ops);
+	mono_register_trampoline_unwind_info ("monitor_exit_trampoline", buf, code - buf, unwind_ops);
 
 	return buf;
 }

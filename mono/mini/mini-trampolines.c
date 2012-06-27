@@ -1596,3 +1596,66 @@ mono_get_rgctx_fetch_trampoline_name (int slot)
 	return g_strdup_printf ("rgctx_fetch_trampoline_%s_%d", mrgctx ? "mrgctx" : "rgctx", index);
 }
 
+#define MAX_TRAMP_SAVE	64
+
+static struct { const char *name; gpointer code; guint32 code_size; guint32 used_regs; } tramp_save [MAX_TRAMP_SAVE];
+static int num_tramp_save = 0;
+
+static void
+do_register_trampoline_unwind_info (const char *name, gpointer code, guint32 code_size, guint32 used_regs)
+{
+	MonoMethod *method;
+	MonoJitInfo *ji;
+	MonoDomain *domain = mono_get_root_domain ();
+
+	g_assert (domain);
+
+	method = mono_domain_alloc0 (mono_get_root_domain (), sizeof (MonoMethod));
+	method->name = name;
+	method->klass = mono_defaults.object_class;
+
+	ji = mono_domain_alloc0 (mono_get_root_domain (), MONO_SIZEOF_JIT_INFO);
+	ji->code_start = code;
+	ji->code_size = code_size;
+	ji->method = method;
+	ji->used_regs = used_regs;
+
+	mono_jit_info_table_add (mono_get_root_domain (), ji);
+}
+
+void
+mono_register_trampoline_unwind_info (const char *name, gpointer code, guint32 code_size, GSList *unwind_ops)
+{
+	guint32 info_len;
+	guint8 *unwind_info;
+	guint32 used_regs;
+
+	unwind_info = mono_unwind_ops_encode (unwind_ops, &info_len);
+	used_regs = mono_cache_unwind_info (unwind_info, info_len);
+
+	if (mono_get_root_domain ()) {
+		do_register_trampoline_unwind_info (name, code, code_size, used_regs);
+	} else {
+		g_assert (num_tramp_save < MAX_TRAMP_SAVE);
+		tramp_save [num_tramp_save].name = name;
+		tramp_save [num_tramp_save].code = code;
+		tramp_save [num_tramp_save].code_size = code_size;
+		tramp_save [num_tramp_save].used_regs = used_regs;
+		++num_tramp_save;
+	}
+}
+
+void
+mono_register_cached_trampoline_unwind_infos (void)
+{
+	int i;
+
+	g_assert (mono_get_root_domain ());
+
+	for (i = 0; i < num_tramp_save; ++i) {
+		do_register_trampoline_unwind_info (tramp_save [i].name,
+			tramp_save [i].code, tramp_save [i].code_size,
+			tramp_save [i].used_regs);
+	}
+	num_tramp_save = 0;
+}
