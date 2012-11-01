@@ -361,7 +361,7 @@ typedef struct {
  */
 #define SGEN_LOAD_VTABLE(addr) ((*(mword*)(addr)) & ~SGEN_VTABLE_BITS_MASK)
 
-#if SGEN_MAX_DEBUG_LEVEL >= 9
+#if defined(SGEN_CHECK_GRAY_OBJECT_ENQUEUE) || SGEN_MAX_DEBUG_LEVEL >= 9
 #define GRAY_OBJECT_ENQUEUE sgen_gray_object_enqueue
 #define GRAY_OBJECT_DEQUEUE(queue,o) ((o) = sgen_gray_object_dequeue ((queue)))
 #else

@@ -2336,7 +2336,7 @@ collect_nursery (void)
 
 	sgen_memgov_minor_collection_start ();
 
-	sgen_gray_object_queue_init (&gray_queue);
+	sgen_gray_object_queue_init (&gray_queue, NULL);
 	sgen_workers_init_distribute_gray_queue ();
 
 	stat_minor_gcs++;
@@ -2551,7 +2551,7 @@ major_do_collection (const char *reason)
 	binary_protocol_collection (stat_major_gcs, GENERATION_OLD);
 	check_scan_starts ();
 
-	sgen_gray_object_queue_init (&gray_queue);
+	sgen_gray_object_queue_init (&gray_queue, NULL);
 	sgen_workers_init_distribute_gray_queue ();
 	sgen_nursery_alloc_prepare_for_major ();
 

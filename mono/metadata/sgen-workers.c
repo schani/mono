@@ -283,7 +283,7 @@ workers_thread_func (void *data_untyped)
 	if (sgen_get_major_collector ()->init_worker_thread)
 		sgen_get_major_collector ()->init_worker_thread (data->major_collector_data);
 
-	sgen_gray_object_queue_init_with_alloc_prepare (&data->private_gray_queue,
+	sgen_gray_object_queue_init_with_alloc_prepare (&data->private_gray_queue, NULL,
 			workers_gray_queue_share_redirect, data);
 
 	for (;;) {
@@ -301,7 +301,7 @@ workers_thread_func (void *data_untyped)
 				workers_gray_queue_share_redirect (&data->private_gray_queue);
 			g_assert (sgen_gray_object_queue_is_empty (&data->private_gray_queue));
 
-			sgen_gray_object_queue_init (&data->private_gray_queue);
+			sgen_gray_object_queue_init (&data->private_gray_queue, NULL);
 
 			did_work = TRUE;
 		}
@@ -329,7 +329,7 @@ sgen_workers_init_distribute_gray_queue (void)
 	if (!sgen_collection_is_parallel ())
 		return;
 
-	sgen_gray_object_queue_init (&workers_distribute_gray_queue);
+	sgen_gray_object_queue_init (&workers_distribute_gray_queue, NULL);
 }
 
 void
@@ -350,7 +350,7 @@ sgen_workers_init (int num_workers)
 	MONO_SEM_INIT (&workers_waiting_sem, 0);
 	MONO_SEM_INIT (&workers_done_sem, 0);
 
-	sgen_gray_object_queue_init_with_alloc_prepare (&workers_distribute_gray_queue,
+	sgen_gray_object_queue_init_with_alloc_prepare (&workers_distribute_gray_queue, NULL,
 			workers_gray_queue_share_redirect, &workers_gc_thread_data);
 	mono_mutex_init (&workers_gc_thread_data.stealable_stack_mutex, NULL);
 	workers_gc_thread_data.stealable_stack_fill = 0;
