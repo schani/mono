@@ -2582,6 +2582,7 @@ major_do_collection (const char *reason)
 		major_collector.start_major_collection ();
 
 	objects_pinned = 0;
+	g_assert (*major_collector.have_swept);
 	*major_collector.have_swept = FALSE;
 
 	if (xdomain_checks) {
