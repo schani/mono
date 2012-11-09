@@ -696,6 +696,7 @@ struct _SgenMajorCollector {
 	void (*reset_worker_data) (void *data);
 	gboolean (*is_valid_object) (char *object);
 	gboolean (*describe_pointer) (char *pointer);
+	GrayQueueEnqueueCheckFunc enqueue_check_func;
 };
 
 extern SgenMajorCollector major_collector;

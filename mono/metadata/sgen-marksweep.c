@@ -2051,6 +2051,34 @@ major_is_worker_thread (MonoNativeThreadId thread)
 }
 
 static void
+enqueue_check_func (SgenGrayQueue *queue, char *obj)
+{
+	int size = sgen_safe_object_get_size ((MonoObject*)obj);
+	int idx;
+	MSBlockInfo *block;
+
+	if (sgen_ptr_in_nursery (obj))
+		return;
+
+	/* FIXME: implement LOS check */
+	if (size > SGEN_MAX_SMALL_OBJ_SIZE)
+		return;
+
+	block = MS_BLOCK_FOR_OBJ (obj);
+	g_assert (block->obj_size_index == MS_BLOCK_OBJ_SIZE_INDEX (size));
+
+	idx = MS_BLOCK_OBJ_INDEX (obj, block);
+	g_assert (obj == (char*)MS_BLOCK_OBJ (block, idx));
+
+	if (block->needs_sweep) {
+		int w, b;
+		g_assert (sweep_in_progress);
+		MS_CALC_MARK_BIT (w, b, obj);
+		g_assert (MS_MARK_BIT (block, w, b));
+	}
+}
+
+static void
 alloc_block_lists (MSBlockInfo ***lists)
 {
 	int i;
@@ -2218,6 +2246,7 @@ sgen_marksweep_init
 	collector->post_param_init = NULL;
 	collector->is_valid_object = major_is_valid_object;
 	collector->describe_pointer = major_describe_pointer;
+	collector->enqueue_check_func = enqueue_check_func;
 
 	collector->major_ops.copy_or_mark_object = major_copy_or_mark_object;
 	collector->major_ops.scan_object = major_scan_object;
