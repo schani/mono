@@ -1713,8 +1713,17 @@ major_start_major_collection (void)
 {
 	int i;
 
-	if (sweep_in_progress)
+#ifdef MARKSWEEP_CONSISTENCY_CHECK
+	consistency_check ();
+#endif
+
+	if (sweep_in_progress) {
 	 	finish_sweep ();
+
+#ifdef MARKSWEEP_CONSISTENCY_CHECK
+		consistency_check ();
+#endif
+	}
 
 	/* clear the free lists */
 	for (i = 0; i < num_block_obj_sizes; ++i) {
@@ -1729,6 +1738,9 @@ major_start_major_collection (void)
 static void
 major_finish_major_collection (void)
 {
+#ifdef MARKSWEEP_CONSISTENCY_CHECK
+	consistency_check ();
+#endif
 }
 
 static void
