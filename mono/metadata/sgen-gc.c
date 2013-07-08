@@ -5436,14 +5436,21 @@ mono_gc_get_write_barrier (void)
 		return write_barrier_method;
 
 	/* Create the IL version of mono_gc_barrier_generic_store () */
-	sig = mono_metadata_signature_alloc (mono_defaults.corlib, 1);
+	sig = mono_metadata_signature_alloc (mono_defaults.corlib, 2);
 	sig->ret = &mono_defaults.void_class->byval_arg;
 	sig->params [0] = &mono_defaults.int_class->byval_arg;
+	sig->params [1] = &mono_defaults.int_class->byval_arg;
 
 	mb = mono_mb_new (mono_defaults.object_class, "wbarrier", MONO_WRAPPER_WRITE_BARRIER);
 
+	/*
+         *ptr = value
+        */
+	mono_mb_emit_ldarg (mb, 0);
+	mono_mb_emit_ldarg (mb, 1);
+	mono_mb_emit_byte (mb, CEE_STIND_I4);
 #ifndef DISABLE_JIT
-#ifdef MANAGED_WBARRIER
+#ifdef MANAGED_WBARRIER	
 	emit_nursery_check (mb, nursery_check_labels);
 	/*
 	addr = sgen_cardtable + ((address >> CARD_BITS) & CARD_MASK)
@@ -5460,7 +5467,7 @@ mono_gc_get_write_barrier (void)
 		LDC_PTR card_table_mask
 		AND
 	}
-	AND
+	ADD
 	ldc_i4_1
 	stind_i1
 	*/
@@ -5484,7 +5491,8 @@ mono_gc_get_write_barrier (void)
 	mono_mb_emit_byte (mb, CEE_RET);
 #else
 	mono_mb_emit_ldarg (mb, 0);
-	mono_mb_emit_icall (mb, mono_gc_wbarrier_generic_nostore);
+	mono_mb_emit_ldarg (mb, 1);
+	mono_mb_emit_icall (mb, mono_gc_wbarrier_generic_store);
 	mono_mb_emit_byte (mb, CEE_RET);
 #endif
 #endif
