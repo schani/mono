@@ -2795,7 +2795,6 @@ emit_write_barrier (MonoCompile *cfg, MonoInst *ptr, MonoInst *value)
 	int card_table_shift_bits;
 	gpointer card_table_mask;
 	guint8 *card_table;
-	MonoInst *dummy_use;
 	int nursery_shift_bits;
 	size_t nursery_size;
 	gboolean has_card_table_wb = FALSE;
@@ -2843,10 +2842,9 @@ emit_write_barrier (MonoCompile *cfg, MonoInst *ptr, MonoInst *value)
 		MONO_EMIT_NEW_STORE_MEMBASE_IMM (cfg, OP_STOREI1_MEMBASE_IMM, offset_reg, 0, 1);
 	} else {
 		MonoMethod *write_barrier = mono_gc_get_write_barrier ();
-		mono_emit_method_call (cfg, write_barrier, &ptr, NULL);
+		MonoInst *args[] = { ptr, value };
+		mono_emit_method_call (cfg, write_barrier, args, NULL);
 	}
-
-	EMIT_NEW_DUMMY_USE (cfg, dummy_use, value);
 }
 
 static gboolean
