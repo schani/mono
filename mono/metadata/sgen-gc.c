@@ -4418,10 +4418,24 @@ void
 mono_gc_wbarrier_generic_store (gpointer ptr, MonoObject* value)
 {
 	SGEN_LOG (8, "Wbarrier store at %p to %p (%s)", ptr, value, value ? safe_name (value) : "null");
+
+#ifdef DISABLE_CRITICAL_REGION
+        LOCK_GC;
+#else
+        TLAB_ACCESS_INIT;
+        ENTER_CRITICAL_REGION;
+#endif
+
 	*(void**)ptr = value;
 	if (ptr_in_nursery (value))
 		mono_gc_wbarrier_generic_nostore (ptr);
-	sgen_dummy_use (value);
+
+#ifdef DISABLE_CRITICAL_REGION
+        UNLOCK_GC;
+#else
+        EXIT_CRITICAL_REGION;
+#endif
+
 }
 
 void mono_gc_wbarrier_value_copy_bitmap (gpointer _dest, gpointer _src, int size, unsigned bitmap)
