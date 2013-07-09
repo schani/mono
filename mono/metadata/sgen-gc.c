@@ -5439,7 +5439,7 @@ mono_gc_get_write_barrier (void)
 	sig = mono_metadata_signature_alloc (mono_defaults.corlib, 2);
 	sig->ret = &mono_defaults.void_class->byval_arg;
 	sig->params [0] = &mono_defaults.int_class->byval_arg;
-	sig->params [1] = &mono_defaults.int_class->byval_arg;
+	sig->params [1] = &mono_defaults.object_class->byval_arg;
 
 	mb = mono_mb_new (mono_defaults.object_class, "wbarrier", MONO_WRAPPER_WRITE_BARRIER);
 
