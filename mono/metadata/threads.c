@@ -2612,8 +2612,7 @@ ves_icall_System_Threading_Thread_VolatileWriteFloat (void *ptr, float value)
 void
 ves_icall_System_Threading_Volatile_Write_T (void *ptr, MonoObject *value)
 {
-	*((volatile MonoObject **) ptr) = value;
-	mono_gc_wbarrier_generic_nostore (ptr);
+	mono_gc_wbarrier_generic_volatile_store (ptr, value);
 }
 
 void
