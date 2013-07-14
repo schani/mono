@@ -5462,7 +5462,7 @@ mono_gc_get_write_barrier (void)
         */
 	mono_mb_emit_ldarg (mb, 0);
 	mono_mb_emit_ldarg (mb, 1);
-	mono_mb_emit_byte (mb, CEE_STIND_I4);
+	mono_mb_emit_byte (mb, CEE_STIND_REF);
 #ifndef DISABLE_JIT
 #ifdef MANAGED_WBARRIER	
 	emit_nursery_check (mb, nursery_check_labels);
