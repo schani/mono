@@ -4462,6 +4462,56 @@ mono_gc_wbarrier_generic_volatile_store (gpointer ptr, MonoObject* value)
 
 }
 
+gpointer
+mono_gc_wbarrier_custom_store_2p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer),
+                                        gpointer arg1, gpointer arg2)
+{
+	gpointer ret;
+	
+#ifdef DISABLE_CRITICAL_REGION
+        LOCK_GC;
+#else
+        TLAB_ACCESS_INIT;
+        ENTER_CRITICAL_REGION;
+#endif
+
+	ret = store_func (arg1, arg2);
+	mono_gc_wbarrier_generic_nostore (ptr);
+
+#ifdef DISABLE_CRITICAL_REGION
+        UNLOCK_GC;
+#else
+        EXIT_CRITICAL_REGION;
+#endif
+
+	return ret;
+}
+
+gpointer
+mono_gc_wbarrier_custom_store_3p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer, gpointer),
+                                        gpointer arg1, gpointer arg2, gpointer arg3)
+{       
+        gpointer ret;
+
+#ifdef DISABLE_CRITICAL_REGION
+        LOCK_GC;
+#else
+        TLAB_ACCESS_INIT;
+        ENTER_CRITICAL_REGION;
+#endif
+
+        ret = store_func (arg1, arg2, arg3);
+        mono_gc_wbarrier_generic_nostore (ptr);
+
+#ifdef DISABLE_CRITICAL_REGION
+        UNLOCK_GC;
+#else
+        EXIT_CRITICAL_REGION;
+#endif
+
+        return ret;
+}
+
 void mono_gc_wbarrier_value_copy_bitmap (gpointer _dest, gpointer _src, int size, unsigned bitmap)
 {
 	mword *dest = _dest;

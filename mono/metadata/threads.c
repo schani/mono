@@ -1865,8 +1865,9 @@ gint32 ves_icall_System_Threading_Interlocked_Exchange_Int (gint32 *location, gi
 MonoObject * ves_icall_System_Threading_Interlocked_Exchange_Object (MonoObject **location, MonoObject *value)
 {
 	MonoObject *res;
-	res = (MonoObject *) InterlockedExchangePointer((gpointer *) location, value);
-	mono_gc_wbarrier_generic_nostore (location);
+	res = (MonoObject *) mono_gc_wbarrier_custom_store_2p (location, 
+					(void* (*)(void*, void*)) InterlockedExchangePointer,
+					location, value);
 	return res;
 }
 
@@ -1944,8 +1945,9 @@ gint32 ves_icall_System_Threading_Interlocked_CompareExchange_Int(gint32 *locati
 MonoObject * ves_icall_System_Threading_Interlocked_CompareExchange_Object (MonoObject **location, MonoObject *value, MonoObject *comparand)
 {
 	MonoObject *res;
-	res = (MonoObject *) InterlockedCompareExchangePointer((gpointer *) location, value, comparand);
-	mono_gc_wbarrier_generic_nostore (location);
+	res = (MonoObject *) mono_gc_wbarrier_custom_store_3p (location,
+					(void* (*)(void*, void*, void*)) InterlockedCompareExchangePointer, 
+					location, value, comparand);
 	return res;
 }
 
@@ -2012,8 +2014,9 @@ MonoObject*
 ves_icall_System_Threading_Interlocked_CompareExchange_T (MonoObject **location, MonoObject *value, MonoObject *comparand)
 {
 	MonoObject *res;
-	res = InterlockedCompareExchangePointer ((gpointer *)location, value, comparand);
-	mono_gc_wbarrier_generic_nostore (location);
+	res = (MonoObject*) mono_gc_wbarrier_custom_store_3p (location,
+					(void* (*)(void*, void*, void*)) InterlockedCompareExchangePointer, 
+					location, value, comparand);
 	return res;
 }
 
@@ -2021,8 +2024,9 @@ MonoObject*
 ves_icall_System_Threading_Interlocked_Exchange_T (MonoObject **location, MonoObject *value)
 {
 	MonoObject *res;
-	res = InterlockedExchangePointer ((gpointer *)location, value);
-	mono_gc_wbarrier_generic_nostore (location);
+	res = (MonoObject*) mono_gc_wbarrier_custom_store_2p (location,
+					(void* (*)(void*, void*)) InterlockedExchangePointer,
+					location, value);
 	return res;
 }
 

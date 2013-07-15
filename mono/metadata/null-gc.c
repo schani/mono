@@ -204,7 +204,20 @@ mono_gc_wbarrier_generic_nostore (gpointer ptr)
 {
 }
 
-void
+gpointer
+mono_gc_wbarrier_custom_store_2p (gpointer* ptr, gpointer (*store_func)(gpointer, gpointer),
+                                        gpointer arg1, gpointer arg2)
+{
+        return store_func (arg1, arg2);
+}
+
+gpointer
+mono_gc_wbarrier_custom_store_3p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer, gpointer),
+                                        gpointer arg1, gpointer arg2, gpointer arg3)
+{       
+        return store_func (arg1, arg2, arg3);
+}
+
 mono_gc_wbarrier_value_copy (gpointer dest, gpointer src, int count, MonoClass *klass)
 {
 	mono_gc_memmove (dest, src, count * mono_class_value_size (klass, NULL));

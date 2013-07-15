@@ -321,6 +321,11 @@ MONO_API void mono_gc_wbarrier_value_copy    (void* dest, void* src, int count, 
 MONO_API void mono_gc_wbarrier_object_copy   (MonoObject* obj, MonoObject *src);
 MONO_API void mono_gc_wbarrier_generic_volatile_store (void* ptr, MonoObject* value);
 
+void* mono_gc_wbarrier_custom_store_2p (void* ptr, void* (*store_func)(void*, void*), 
+					void* arg1, void* arg2);
+void* mono_gc_wbarrier_custom_store_3p (void* ptr, void* (*store_func)(void*, void*, void*), 
+					void* arg1, void* arg2, void* arg3);
+
 MONO_END_DECLS
 
 #endif
