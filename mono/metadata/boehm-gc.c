@@ -645,11 +645,6 @@ mono_gc_wbarrier_custom_store_3p (gpointer ptr, gpointer (*store_func)(gpointer,
 }
 
 void
-mono_gc_wbarrier_generic_nostore (gpointer ptr)
-{
-}
-
-void
 mono_gc_wbarrier_value_copy (gpointer dest, gpointer src, int count, MonoClass *klass)
 {
 	mono_gc_memmove (dest, src, count * mono_class_value_size (klass, NULL));

@@ -199,11 +199,6 @@ mono_gc_wbarrier_generic_volatile_store (gpointer ptr, MonoObject* value)
         *(volatile void **)ptr = value;
 }
 
-void
-mono_gc_wbarrier_generic_nostore (gpointer ptr)
-{
-}
-
 gpointer
 mono_gc_wbarrier_custom_store_2p (gpointer* ptr, gpointer (*store_func)(gpointer, gpointer),
                                         gpointer arg1, gpointer arg2)
