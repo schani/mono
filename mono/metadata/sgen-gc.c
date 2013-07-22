@@ -223,6 +223,7 @@
 #include "utils/mono-memory-model.h"
 #include "utils/mono-logger-internal.h"
 #include "utils/dtrace.h"
+#include "utils/atomic.h"
 
 #include <mono/utils/mono-logger-internal.h>
 #include <mono/utils/memcheck.h>
@@ -4418,14 +4419,12 @@ void
 mono_gc_wbarrier_generic_store (gpointer ptr, MonoObject* value)
 {
 	SGEN_LOG (8, "Wbarrier store at %p to %p (%s)", ptr, value, value ? safe_name (value) : "null");
-
 #ifdef DISABLE_CRITICAL_REGION
         LOCK_GC;
 #else
         TLAB_ACCESS_INIT;
         ENTER_CRITICAL_REGION;
 #endif
-
 	*(void**)ptr = value;
 	if (ptr_in_nursery (value))
 		mono_gc_wbarrier_generic_nostore (ptr);
@@ -4462,11 +4461,10 @@ mono_gc_wbarrier_generic_volatile_store (gpointer ptr, MonoObject* value)
 
 }
 
-gpointer
-mono_gc_wbarrier_custom_store_2p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer),
-                                        gpointer arg1, gpointer arg2)
+MonoObject*
+mono_gc_wbarrier_exchange (gpointer ptr, MonoObject* exch)
 {
-	gpointer ret;
+	MonoObject* ret;
 	
 #ifdef DISABLE_CRITICAL_REGION
         LOCK_GC;
@@ -4475,7 +4473,7 @@ mono_gc_wbarrier_custom_store_2p (gpointer ptr, gpointer (*store_func)(gpointer,
         ENTER_CRITICAL_REGION;
 #endif
 
-	ret = store_func (arg1, arg2);
+	ret = (MonoObject*) InterlockedExchangePointer (ptr, exch);
 	mono_gc_wbarrier_generic_nostore (ptr);
 
 #ifdef DISABLE_CRITICAL_REGION
@@ -4487,11 +4485,11 @@ mono_gc_wbarrier_custom_store_2p (gpointer ptr, gpointer (*store_func)(gpointer,
 	return ret;
 }
 
-gpointer
-mono_gc_wbarrier_custom_store_3p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer, gpointer),
-                                        gpointer arg1, gpointer arg2, gpointer arg3)
-{       
-        gpointer ret;
+
+MonoObject*
+mono_gc_wbarrier_compare_exchange (gpointer ptr, MonoObject* exch, MonoObject* comp)
+{
+        MonoObject* ret;
 
 #ifdef DISABLE_CRITICAL_REGION
         LOCK_GC;
@@ -4500,7 +4498,7 @@ mono_gc_wbarrier_custom_store_3p (gpointer ptr, gpointer (*store_func)(gpointer,
         ENTER_CRITICAL_REGION;
 #endif
 
-        ret = store_func (arg1, arg2, arg3);
+        ret = (MonoObject*) InterlockedCompareExchangePointer (ptr, exch, comp);
         mono_gc_wbarrier_generic_nostore (ptr);
 
 #ifdef DISABLE_CRITICAL_REGION
@@ -5517,7 +5515,6 @@ mono_gc_get_write_barrier (void)
 	g_assert (stack_end_offset != -1);
 #endif
 #endif
-
 	// FIXME: Maybe create a separate version for ctors (the branch would be
 	// correctly predicted more times)
 	if (write_barrier_method)

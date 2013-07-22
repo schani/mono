@@ -26,6 +26,7 @@
 #include <mono/utils/mono-threads.h>
 #include <mono/utils/dtrace.h>
 #include <mono/utils/gc_wrapper.h>
+#include <mono/utils/atomic.h>
 
 #if HAVE_BOEHM_GC
 
@@ -630,18 +631,16 @@ mono_gc_wbarrier_generic_volatile_store (gpointer ptr, MonoObject* value)
 	*(volatile void **)ptr = value;
 }
 
-gpointer
-mono_gc_wbarrier_custom_store_2p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer),
-                                        gpointer arg1, gpointer arg2)
+MonoObject*
+mono_gc_wbarrier_exchange (gpointer ptr, MonoObject* exch)
 {
-        return store_func (arg1, arg2);
+        return (MonoObject*) InterlockedExchangePointer (ptr, exch);
 }
 
-gpointer 
-mono_gc_wbarrier_custom_store_3p (gpointer ptr, gpointer (*store_func)(gpointer, gpointer, gpointer),
-                                        gpointer arg1, gpointer arg2, gpointer arg3)
+MonoObject*
+mono_gc_wbarrier_compare_exchange (gpointer ptr, MonoObject* exch, MonoObject* comp)
 {
-        return store_func (arg1, arg2, arg3);
+        return (MonoObject*) InterlockedCompareExchangePointer (ptr, exch, comp);
 }
 
 void
