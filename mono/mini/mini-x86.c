@@ -4229,6 +4229,7 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			/*
 			 * This is the code we produce:
 			 *
+			 *   *ptr = value
 			 *   edx = value
 			 *   edx >>= nursery_shift
 			 *   cmp edx, (nursery_start >> nursery_shift)
@@ -4239,6 +4240,7 @@ mono_arch_output_basic_block (MonoCompile *cfg, MonoBasicBlock *bb)
 			 * done:
 			 */
 
+			x86_mov_membase_reg (code, ptr, 0, value, 4);
 			if (card_table_nursery_check) {
 				if (value != X86_EDX)
 					x86_mov_reg_reg (code, X86_EDX, value, 4);
