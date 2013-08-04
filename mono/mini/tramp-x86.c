@@ -1083,6 +1083,33 @@ mono_arch_create_monitor_exit_trampoline (MonoTrampInfo **info, gboolean aot)
 
 #endif
 
+gpointer
+mono_arch_create_write_barrier_trampoline (MonoTrampInfo **info)
+{
+	guint8 *code, *buf;
+	int tramp_size;
+	GSList *unwind_ops = NULL;
+	MonoJumpInfo *ji = NULL;
+	int ptr = X86_EAX;
+	int value = X86_EDX;
+	tramp_size = NACL_SIZE (96, 128);
+
+	code = buf = mono_global_codeman_reserve (tramp_size);
+
+	nacl_global_codeman_validate (&buf, tramp_size, &code);
+
+	x86_mov_membase_reg (code, ptr, 0, value, 4);
+	x86_ret (code);
+
+	mono_arch_flush_icache (buf, code - buf);
+	g_assert (code - buf <= tramp_size);
+
+	if (info)
+		*info = mono_tramp_info_create ("write_barrier_trampoline", buf, code - buf, ji, unwind_ops);
+
+	return buf;
+}
+
 void
 mono_arch_invalidate_method (MonoJitInfo *ji, void *func, gpointer func_arg)
 {

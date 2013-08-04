@@ -140,6 +140,7 @@ static MonoMethodSignature *helper_sig_generic_class_init_trampoline_llvm = NULL
 static MonoMethodSignature *helper_sig_rgctx_lazy_fetch_trampoline = NULL;
 static MonoMethodSignature *helper_sig_monitor_enter_exit_trampoline = NULL;
 static MonoMethodSignature *helper_sig_monitor_enter_exit_trampoline_llvm = NULL;
+static MonoMethodSignature *helper_sig_write_barrier_trampoline = NULL;
 
 /*
  * Instruction metadata
@@ -352,6 +353,7 @@ mono_create_helper_signatures (void)
 	helper_sig_rgctx_lazy_fetch_trampoline = mono_create_icall_signature ("ptr ptr");
 	helper_sig_monitor_enter_exit_trampoline = mono_create_icall_signature ("void");
 	helper_sig_monitor_enter_exit_trampoline_llvm = mono_create_icall_signature ("void object");
+	helper_sig_write_barrier_trampoline = mono_create_icall_signature ("void");
 }
 
 /*
@@ -2811,14 +2813,15 @@ emit_write_barrier (MonoCompile *cfg, MonoInst *ptr, MonoInst *value)
 #endif
 
 	if (has_card_table_wb && !cfg->compile_aot && card_table && nursery_shift_bits > 0) {
-		MonoInst *wbarrier;
+		MonoCallInst *wbarrier;
 
-		MONO_INST_NEW (cfg, wbarrier, OP_CARD_TABLE_WBARRIER);
-		wbarrier->sreg1 = ptr->dreg;
-		wbarrier->sreg2 = value->dreg;
-		MONO_ADD_INS (cfg->cbb, wbarrier);
-		
-		return wbarrier;
+		wbarrier = (MonoCallInst*)mono_emit_abs_call (cfg, MONO_PATCH_INFO_WRITE_BARRIER,
+				NULL, helper_sig_write_barrier_trampoline, NULL);
+
+		mono_call_inst_add_outarg_reg (cfg, wbarrier, ptr->dreg, X86_EAX, FALSE);
+		mono_call_inst_add_outarg_reg (cfg, wbarrier, value->dreg, X86_EDX, FALSE);
+	
+		return (MonoInst*)wbarrier;
 	} else {
 		MonoMethod *write_barrier = mono_gc_get_write_barrier ();
 		MonoInst *args[] = { ptr, value };
