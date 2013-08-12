@@ -1058,7 +1058,6 @@ mono_arch_create_monitor_exit_trampoline (MonoTrampInfo **info, gboolean aot)
 
 	mono_arch_flush_icache (buf, code - buf);
 	g_assert (code - buf <= tramp_size);
-
 	if (info)
 		*info = mono_tramp_info_create ("monitor_exit_trampoline", buf, code - buf, ji, unwind_ops);
 
@@ -1090,15 +1089,52 @@ mono_arch_create_write_barrier_trampoline (MonoTrampInfo **info)
 	int tramp_size;
 	GSList *unwind_ops = NULL;
 	MonoJumpInfo *ji = NULL;
-	int ptr = X86_EAX;
-	int value = X86_EDX;
-	tramp_size = NACL_SIZE (96, 128);
+	const int ptr = X86_EAX;
+	const int value = X86_EDX;
+	int nursery_shift, card_table_shift;
+	gpointer card_table_mask;
+	size_t nursery_size;
+	guchar *br;
 
+	gulong card_table = (gulong)mono_gc_get_card_table (&card_table_shift, &card_table_mask);
+	gulong nursery_start = (gulong)mono_gc_get_nursery (&nursery_shift, &nursery_size);
+	gboolean card_table_nursery_check = mono_gc_card_table_nursery_check ();
+
+	tramp_size = 128;
 	code = buf = mono_global_codeman_reserve (tramp_size);
-
 	nacl_global_codeman_validate (&buf, tramp_size, &code);
 
+	/*
+	 * This is the code we produce:
+	 *
+	 *   *ptr = value
+	 *   edx = value
+	 *   edx >>= nursery_shift
+	 *   cmp edx, (nursery_start >> nursery_shift)
+	 *   jne done
+	 *   edx = ptr
+	 *   edx >>= card_table_shift
+	 *   card_table[edx] = 1
+	 * done:
+	 */
+
+	x86_push_reg (code, X86_EDX);	
+	
 	x86_mov_membase_reg (code, ptr, 0, value, 4);
+	if (card_table_nursery_check) {
+		x86_shift_reg_imm (code, X86_SHR, X86_EDX, nursery_shift);
+		x86_alu_reg_imm (code, X86_CMP, X86_EDX, nursery_start >> nursery_shift);
+		br = code; x86_branch8 (code, X86_CC_NE, -1, FALSE);
+	}
+	x86_mov_reg_reg (code, X86_EDX, ptr, 4);
+	x86_shift_reg_imm (code, X86_SHR, X86_EDX, card_table_shift);
+	if (card_table_mask)
+		x86_alu_reg_imm (code, X86_AND, X86_EDX, (int)card_table_mask);
+	x86_mov_membase_imm (code, X86_EDX, card_table, 1, 1);
+	if (card_table_nursery_check)
+		x86_patch (br, code);
+
+	x86_pop_reg (code, X86_EDX);
 	x86_ret (code);
 
 	mono_arch_flush_icache (buf, code - buf);
