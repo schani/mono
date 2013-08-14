@@ -36,6 +36,7 @@ g_get_current_time (GTimeVal *result)
 	long int l;
 
 	g_return_if_fail (result != NULL);
+	/* FIXME: GetTickCount() overflows every 49 days - use GetTickCount64(). */
 	l = GetTickCount();
 
 	result->tv_sec = l / 1000;

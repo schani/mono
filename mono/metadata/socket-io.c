@@ -816,6 +816,7 @@ gint32 ves_icall_System_Net_Sockets_Socket_Available_internal(SOCKET sock,
 
 	*error = 0;
 	
+	/* FIXME: this might require amount to be unsigned long. */
 	ret=ioctlsocket(sock, FIONREAD, &amount);
 	if(ret==SOCKET_ERROR) {
 		*error = WSAGetLastError ();

@@ -17,6 +17,7 @@ guint32
 mono_msec_ticks (void)
 {
 	/* GetTickCount () is reportedly monotonic */
+	/* FIXME: overflows every 49 days - GetTickCount64() is recommended */
 	return GetTickCount ();
 }
 
