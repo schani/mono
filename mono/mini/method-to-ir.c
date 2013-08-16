@@ -2813,14 +2813,13 @@ emit_write_barrier (MonoCompile *cfg, MonoInst *ptr, MonoInst *value)
 #endif
 
 	if (has_card_table_wb && !cfg->compile_aot && card_table && nursery_shift_bits > 0) {
-		MonoCallInst *wbarrier;
+		MonoInst *wbarrier;
 
-		wbarrier = (MonoCallInst*)mono_emit_abs_call (cfg, MONO_PATCH_INFO_WRITE_BARRIER,
-				NULL, helper_sig_write_barrier_trampoline, NULL);
+		MONO_INST_NEW (cfg, wbarrier, OP_CARD_TABLE_WBARRIER);
+		wbarrier->sreg1 = ptr->dreg;
+		wbarrier->sreg2 = value->dreg;
+		MONO_ADD_INS (cfg->cbb, wbarrier);
 
-		mono_call_inst_add_outarg_reg (cfg, wbarrier, ptr->dreg, X86_EAX, FALSE);
-		mono_call_inst_add_outarg_reg (cfg, wbarrier, value->dreg, X86_EDX, FALSE);
-	
 		return (MonoInst*)wbarrier;
 	} else {
 		MonoMethod *write_barrier = mono_gc_get_write_barrier ();

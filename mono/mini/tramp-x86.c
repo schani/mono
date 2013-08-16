@@ -1089,8 +1089,8 @@ mono_arch_create_write_barrier_trampoline (MonoTrampInfo **info)
 	int tramp_size;
 	GSList *unwind_ops = NULL;
 	MonoJumpInfo *ji = NULL;
-	const int ptr = X86_EAX;
-	const int value = X86_EDX;
+	const int ptr = X86_EAX; // value of eax should remain unchanged
+	const int value = X86_EDX; // only register that can be overwritten
 	int nursery_shift, card_table_shift;
 	gpointer card_table_mask;
 	size_t nursery_size;
@@ -1102,8 +1102,6 @@ mono_arch_create_write_barrier_trampoline (MonoTrampInfo **info)
 
 	tramp_size = 128;
 	code = buf = mono_global_codeman_reserve (tramp_size);
-	nacl_global_codeman_validate (&buf, tramp_size, &code);
-
 	/*
 	 * This is the code we produce:
 	 *
@@ -1117,9 +1115,6 @@ mono_arch_create_write_barrier_trampoline (MonoTrampInfo **info)
 	 *   card_table[edx] = 1
 	 * done:
 	 */
-
-	x86_push_reg (code, X86_EDX);	
-	
 	x86_mov_membase_reg (code, ptr, 0, value, 4);
 	if (card_table_nursery_check) {
 		x86_shift_reg_imm (code, X86_SHR, X86_EDX, nursery_shift);
@@ -1133,9 +1128,10 @@ mono_arch_create_write_barrier_trampoline (MonoTrampInfo **info)
 	x86_mov_membase_imm (code, X86_EDX, card_table, 1, 1);
 	if (card_table_nursery_check)
 		x86_patch (br, code);
-
-	x86_pop_reg (code, X86_EDX);
 	x86_ret (code);
+
+
+	nacl_global_codeman_validate (&buf, tramp_size, &code);
 
 	mono_arch_flush_icache (buf, code - buf);
 	g_assert (code - buf <= tramp_size);
