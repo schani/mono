@@ -5424,9 +5424,17 @@ sgen_has_critical_method (void)
 	return write_barrier_method || sgen_has_managed_allocator ();
 }
 
+/*** From mini-trampolines.c ***/
+gboolean
+mono_is_ip_in_write_barrier_trampoline (gpointer ip);
+/******/
+
 gboolean
 sgen_thread_is_in_critical_region (SgenThreadInfo* info)
 {
+	if (mono_is_ip_in_write_barrier_trampoline (info->stopped_ip))
+		return TRUE;
+
         return (gboolean)info->in_critical_region;
 }
 
