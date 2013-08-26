@@ -2138,6 +2138,7 @@ gpointer          mono_create_rgctx_lazy_fetch_trampoline (guint32 offset) MONO_
 gpointer          mono_create_monitor_enter_trampoline (void) MONO_INTERNAL;
 gpointer          mono_create_monitor_exit_trampoline (void) MONO_INTERNAL;
 gpointer          mono_create_write_barrier_trampoline (void) MONO_INTERNAL;
+gboolean          mono_is_ip_in_write_barrier_trampoline (gpointer ip) MONO_INTERNAL;
 gpointer          mono_create_static_rgctx_trampoline (MonoMethod *m, gpointer addr) MONO_INTERNAL;
 gpointer          mono_create_llvm_imt_trampoline (MonoDomain *domain, MonoMethod *m, int vt_offset) MONO_LLVM_INTERNAL;
 MonoVTable*       mono_find_class_init_trampoline_by_addr (gconstpointer addr) MONO_INTERNAL;
