@@ -587,4 +587,142 @@ sgen_check_nursery_objects_pinned (gboolean pinned)
 			(IterateObjectCallbackFunc)check_nursery_objects_pinned_callback, (void*) (size_t) pinned /* (void*)&ctx */, FALSE);
 }
 
+static gboolean scan_object_for_specific_ref_precise = TRUE;
+
+#undef HANDLE_PTR
+#define HANDLE_PTR(ptr,obj) do {		\
+	if ((MonoObject*)*(ptr) == key) {	\
+	g_print ("found ref to %p in object %p (%s) at offset %td\n",	\
+			key, (obj), sgen_safe_name ((obj)), ((char*)(ptr) - (char*)(obj))); \
+	}								\
+	} while (0)
+
+static void
+scan_object_for_specific_ref (char *start, MonoObject *key)
+{
+	char *forwarded;
+
+	if ((forwarded = SGEN_OBJECT_IS_FORWARDED (start)))
+		start = forwarded;
+
+	if (scan_object_for_specific_ref_precise) {
+		#include "sgen-scan-object.h"
+	} else {
+		mword *words = (mword*)start;
+		size_t size = safe_object_get_size ((MonoObject*)start);
+		int i;
+		for (i = 0; i < size / sizeof (mword); ++i) {
+			if (words [i] == (mword)key) {
+				g_print ("found possible ref to %p in object %p (%s) at offset %td\n",
+						key, start, sgen_safe_name (start), i * sizeof (mword));
+			}
+		}
+	}
+}
+
+static void
+scan_object_for_specific_ref_callback (char *obj, size_t size, MonoObject *key)
+{
+	scan_object_for_specific_ref (obj, key);
+}
+
+static void
+check_root_obj_specific_ref (RootRecord *root, MonoObject *key, MonoObject *obj)
+{
+	if (key != obj)
+		return;
+	g_print ("found ref to %p in root record %p\n", key, root);
+}
+
+static MonoObject *check_key = NULL;
+static RootRecord *check_root = NULL;
+
+static void
+check_root_obj_specific_ref_from_marker (void **obj)
+{
+	check_root_obj_specific_ref (check_root, check_key, *obj);
+}
+
+static void
+scan_roots_for_specific_ref (MonoObject *key, int root_type)
+{
+	void **start_root;
+	RootRecord *root;
+	check_key = key;
+
+	SGEN_HASH_TABLE_FOREACH (&roots_hash [root_type], start_root, root) {
+		mword desc = root->root_desc;
+
+		check_root = root;
+
+		switch (desc & ROOT_DESC_TYPE_MASK) {
+		case ROOT_DESC_BITMAP:
+			desc >>= ROOT_DESC_TYPE_SHIFT;
+			while (desc) {
+				if (desc & 1)
+					check_root_obj_specific_ref (root, key, *start_root);
+				desc >>= 1;
+				start_root++;
+			}
+			return;
+		case ROOT_DESC_COMPLEX: {
+			gsize *bitmap_data = sgen_get_complex_descriptor_bitmap (desc);
+			int bwords = (*bitmap_data) - 1;
+			void **start_run = start_root;
+			bitmap_data++;
+			while (bwords-- > 0) {
+				gsize bmap = *bitmap_data++;
+				void **objptr = start_run;
+				while (bmap) {
+					if (bmap & 1)
+						check_root_obj_specific_ref (root, key, *objptr);
+					bmap >>= 1;
+					++objptr;
+				}
+				start_run += GC_BITS_PER_WORD;
+			}
+			break;
+		}
+		case ROOT_DESC_USER: {
+			MonoGCRootMarkFunc marker = sgen_get_user_descriptor_func (desc);
+			marker (start_root, check_root_obj_specific_ref_from_marker);
+			break;
+		}
+		case ROOT_DESC_RUN_LEN:
+			g_assert_not_reached ();
+		default:
+			g_assert_not_reached ();
+		}
+	} SGEN_HASH_TABLE_FOREACH_END;
+
+	check_key = NULL;
+	check_root = NULL;
+}
+
+void
+mono_gc_scan_for_specific_ref (MonoObject *key, gboolean precise)
+{
+	void **ptr;
+	RootRecord *root;
+
+	scan_object_for_specific_ref_precise = precise;
+
+	sgen_scan_area_with_callback (nursery_section->data, nursery_section->end_data,
+			(IterateObjectCallbackFunc)scan_object_for_specific_ref_callback, key, TRUE);
+
+	major_collector.iterate_objects (TRUE, TRUE, TRUE, (IterateObjectCallbackFunc)scan_object_for_specific_ref_callback, key);
+
+	sgen_los_iterate_objects ((IterateObjectCallbackFunc)scan_object_for_specific_ref_callback, key);
+
+	scan_roots_for_specific_ref (key, ROOT_TYPE_NORMAL);
+	scan_roots_for_specific_ref (key, ROOT_TYPE_WBARRIER);
+
+	SGEN_HASH_TABLE_FOREACH (&roots_hash [ROOT_TYPE_PINNED], ptr, root) {
+		while (ptr < (void**)root->end_root) {
+			check_root_obj_specific_ref (root, *ptr, key);
+			++ptr;
+		}
+	} SGEN_HASH_TABLE_FOREACH_END;
+}
+
 #endif /*HAVE_SGEN_GC*/
