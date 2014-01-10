@@ -32,6 +32,7 @@
 #include "metadata/sgen-protocol.h"
 #include "metadata/sgen-memory-governor.h"
 #include "metadata/sgen-pinning.h"
+#include "metadata/threadpool-internals.h"
 
 #define LOAD_VTABLE	SGEN_LOAD_VTABLE
 
@@ -723,6 +724,187 @@ mono_gc_scan_for_specific_ref (MonoObject *key, gboolean precise)
 			++ptr;
 		}
 	} SGEN_HASH_TABLE_FOREACH_END;
+}
+
+static MonoDomain *check_domain = NULL;
+
+static void
+check_obj_not_in_domain (void **o)
+{
+	g_assert (((MonoObject*)(*o))->vtable->domain != check_domain);
+}
+
+void
+sgen_scan_for_registered_roots_in_domain (MonoDomain *domain, int root_type)
+{
+	void **start_root;
+	RootRecord *root;
+	check_domain = domain;
+	SGEN_HASH_TABLE_FOREACH (&roots_hash [root_type], start_root, root) {
+		mword desc = root->root_desc;
+
+		/* The MonoDomain struct is allowed to hold
+		   references to objects in its own domain. */
+		if (start_root == (void**)domain)
+			continue;
+
+		switch (desc & ROOT_DESC_TYPE_MASK) {
+		case ROOT_DESC_BITMAP:
+			desc >>= ROOT_DESC_TYPE_SHIFT;
+			while (desc) {
+				if ((desc & 1) && *start_root)
+					check_obj_not_in_domain (*start_root);
+				desc >>= 1;
+				start_root++;
+			}
+			break;
+		case ROOT_DESC_COMPLEX: {
+			gsize *bitmap_data = sgen_get_complex_descriptor_bitmap (desc);
+			int bwords = (*bitmap_data) - 1;
+			void **start_run = start_root;
+			bitmap_data++;
+			while (bwords-- > 0) {
+				gsize bmap = *bitmap_data++;
+				void **objptr = start_run;
+				while (bmap) {
+					if ((bmap & 1) && *objptr)
+						check_obj_not_in_domain (*objptr);
+					bmap >>= 1;
+					++objptr;
+				}
+				start_run += GC_BITS_PER_WORD;
+			}
+			break;
+		}
+		case ROOT_DESC_USER: {
+			MonoGCRootMarkFunc marker = sgen_get_user_descriptor_func (desc);
+			marker (start_root, check_obj_not_in_domain);
+			break;
+		}
+		case ROOT_DESC_RUN_LEN:
+			g_assert_not_reached ();
+		default:
+			g_assert_not_reached ();
+		}
+	} SGEN_HASH_TABLE_FOREACH_END;
+
+	check_domain = NULL;
+}
+
+static gboolean
+is_xdomain_ref_allowed (gpointer *ptr, char *obj, MonoDomain *domain)
+{
+	MonoObject *o = (MonoObject*)(obj);
+	MonoObject *ref = (MonoObject*)*(ptr);
+	int offset = (char*)(ptr) - (char*)o;
+
+	if (o->vtable->klass == mono_defaults.thread_class && offset == G_STRUCT_OFFSET (MonoThread, internal_thread))
+		return TRUE;
+	if (o->vtable->klass == mono_defaults.internal_thread_class && offset == G_STRUCT_OFFSET (MonoInternalThread, current_appcontext))
+		return TRUE;
+
+#ifndef DISABLE_REMOTING
+	if (mono_defaults.real_proxy_class->supertypes && mono_class_has_parent_fast (o->vtable->klass, mono_defaults.real_proxy_class) &&
+			offset == G_STRUCT_OFFSET (MonoRealProxy, unwrapped_server))
+		return TRUE;
+#endif
+	/* Thread.cached_culture_info */
+	if (!strcmp (ref->vtable->klass->name_space, "System.Globalization") &&
+			!strcmp (ref->vtable->klass->name, "CultureInfo") &&
+			!strcmp(o->vtable->klass->name_space, "System") &&
+			!strcmp(o->vtable->klass->name, "Object[]"))
+		return TRUE;
+	/*
+	 *  at System.IO.MemoryStream.InternalConstructor (byte[],int,int,bool,bool) [0x0004d] in /home/schani/Work/novell/trunk/mcs/class/corlib/System.IO/MemoryStream.cs:121
+	 * at System.IO.MemoryStream..ctor (byte[]) [0x00017] in /home/schani/Work/novell/trunk/mcs/class/corlib/System.IO/MemoryStream.cs:81
+	 * at (wrapper remoting-invoke-with-check) System.IO.MemoryStream..ctor (byte[]) <IL 0x00020, 0xffffffff>
+	 * at System.Runtime.Remoting.Messaging.CADMethodCallMessage.GetArguments () [0x0000d] in /home/schani/Work/novell/trunk/mcs/class/corlib/System.Runtime.Remoting.Messaging/CADMessages.cs:327
+	 * at System.Runtime.Remoting.Messaging.MethodCall..ctor (System.Runtime.Remoting.Messaging.CADMethodCallMessage) [0x00017] in /home/schani/Work/novell/trunk/mcs/class/corlib/System.Runtime.Remoting.Messaging/MethodCall.cs:87
+	 * at System.AppDomain.ProcessMessageInDomain (byte[],System.Runtime.Remoting.Messaging.CADMethodCallMessage,byte[]&,System.Runtime.Remoting.Messaging.CADMethodReturnMessage&) [0x00018] in /home/schani/Work/novell/trunk/mcs/class/corlib/System/AppDomain.cs:1213
+	 * at (wrapper remoting-invoke-with-check) System.AppDomain.ProcessMessageInDomain (byte[],System.Runtime.Remoting.Messaging.CADMethodCallMessage,byte[]&,System.Runtime.Remoting.Messaging.CADMethodReturnMessage&) <IL 0x0003d, 0xffffffff>
+	 * at System.Runtime.Remoting.Channels.CrossAppDomainSink.ProcessMessageInDomain (byte[],System.Runtime.Remoting.Messaging.CADMethodCallMessage) [0x00008] in /home/schani/Work/novell/trunk/mcs/class/corlib/System.Runtime.Remoting.Channels/CrossAppDomainChannel.cs:198
+	 * at (wrapper runtime-invoke) object.runtime_invoke_CrossAppDomainSink/ProcessMessageRes_object_object (object,intptr,intptr,intptr) <IL 0x0004c, 0xffffffff>
+	 */
+	if (!strcmp (ref->vtable->klass->name_space, "System") &&
+			!strcmp (ref->vtable->klass->name, "Byte[]") &&
+			!strcmp (o->vtable->klass->name_space, "System.IO") &&
+			!strcmp (o->vtable->klass->name, "MemoryStream"))
+		return TRUE;
+	/* append_job() in threadpool.c */
+	if (!strcmp (ref->vtable->klass->name_space, "System.Runtime.Remoting.Messaging") &&
+			!strcmp (ref->vtable->klass->name, "AsyncResult") &&
+			!strcmp (o->vtable->klass->name_space, "System") &&
+			!strcmp (o->vtable->klass->name, "Object[]") &&
+			mono_thread_pool_is_queue_array ((MonoArray*) o))
+		return TRUE;
+	return FALSE;
+}
+
+static void
+check_reference_for_xdomain (gpointer *ptr, char *obj, MonoDomain *domain)
+{
+	MonoObject *o = (MonoObject*)(obj);
+	MonoObject *ref = (MonoObject*)*(ptr);
+	int offset = (char*)(ptr) - (char*)o;
+	MonoClass *class;
+	MonoClassField *field;
+	char *str;
+
+	if (!ref || ref->vtable->domain == domain)
+		return;
+	if (is_xdomain_ref_allowed (ptr, obj, domain))
+		return;
+
+	field = NULL;
+	for (class = o->vtable->klass; class; class = class->parent) {
+		int i;
+
+		for (i = 0; i < class->field.count; ++i) {
+			if (class->fields[i].offset == offset) {
+				field = &class->fields[i];
+				break;
+			}
+		}
+		if (field)
+			break;
+	}
+
+	if (ref->vtable->klass == mono_defaults.string_class)
+		str = mono_string_to_utf8 ((MonoString*)ref);
+	else
+		str = NULL;
+	g_print ("xdomain reference in %p (%s.%s) at offset %d (%s) to %p (%s.%s) (%s)  -  pointed to by:\n",
+			o, o->vtable->klass->name_space, o->vtable->klass->name,
+			offset, field ? field->name : "",
+			ref, ref->vtable->klass->name_space, ref->vtable->klass->name, str ? str : "");
+	mono_gc_scan_for_specific_ref (o, TRUE);
+	if (str)
+		g_free (str);
+}
+
+#undef HANDLE_PTR
+#define HANDLE_PTR(ptr,obj)	check_reference_for_xdomain ((ptr), (obj), domain)
+
+static void
+scan_object_for_xdomain_refs (char *start, mword size, void *data)
+{
+	MonoDomain *domain = ((MonoObject*)start)->vtable->domain;
+
+	#include "sgen-scan-object.h"
+}
+
+void
+sgen_check_for_xdomain_refs (void)
+{
+	LOSObject *bigobj;
+
+	sgen_scan_area_with_callback (nursery_section->data, nursery_section->end_data,
+			(IterateObjectCallbackFunc)scan_object_for_xdomain_refs, NULL, FALSE);
+
+	major_collector.iterate_objects (TRUE, TRUE, TRUE, (IterateObjectCallbackFunc)scan_object_for_xdomain_refs, NULL);
+
+	for (bigobj = los_object_list; bigobj; bigobj = bigobj->next)
+		scan_object_for_xdomain_refs (bigobj->data, sgen_los_object_size (bigobj), NULL);
 }
 
 #endif /*HAVE_SGEN_GC*/

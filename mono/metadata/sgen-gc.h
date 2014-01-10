@@ -1026,6 +1026,8 @@ void sgen_check_whole_heap_stw (void) MONO_INTERNAL;
 void sgen_check_objref (char *obj);
 void sgen_check_major_heap_marked (void) MONO_INTERNAL;
 void sgen_check_nursery_objects_pinned (gboolean pinned) MONO_INTERNAL;
+void sgen_scan_for_registered_roots_in_domain (MonoDomain *domain, int root_type) MONO_INTERNAL;
+void sgen_check_for_xdomain_refs (void) MONO_INTERNAL;
 
 void mono_gc_scan_for_specific_ref (MonoObject *key, gboolean precise) MONO_INTERNAL;
 
