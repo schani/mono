@@ -194,7 +194,7 @@ sgen_check_consistency (void)
 	SGEN_LOG (1, "Begin heap consistency check...");
 
 	// Check that oldspace->newspace pointers are registered with the collector
-	major_collector.iterate_objects (TRUE, TRUE, (IterateObjectCallbackFunc)check_consistency_callback, NULL);
+	major_collector.iterate_objects (TRUE, TRUE, TRUE, (IterateObjectCallbackFunc)check_consistency_callback, NULL);
 
 	sgen_los_iterate_objects ((IterateObjectCallbackFunc)check_consistency_callback, NULL);
 
@@ -250,7 +250,7 @@ sgen_check_mod_union_consistency (void)
 {
 	missing_remsets = FALSE;
 
-	major_collector.iterate_objects (TRUE, TRUE, (IterateObjectCallbackFunc)check_mod_union_callback, (void*)FALSE);
+	major_collector.iterate_objects (FALSE, TRUE, TRUE, (IterateObjectCallbackFunc)check_mod_union_callback, (void*)FALSE);
 
 	sgen_los_iterate_objects ((IterateObjectCallbackFunc)check_mod_union_callback, (void*)TRUE);
 
@@ -273,7 +273,7 @@ check_major_refs_callback (char *start, size_t size, void *dummy)
 void
 sgen_check_major_refs (void)
 {
-	major_collector.iterate_objects (TRUE, TRUE, (IterateObjectCallbackFunc)check_major_refs_callback, NULL);
+	major_collector.iterate_objects (TRUE, TRUE, TRUE, (IterateObjectCallbackFunc)check_major_refs_callback, NULL);
 	sgen_los_iterate_objects ((IterateObjectCallbackFunc)check_major_refs_callback, NULL);
 }
 
@@ -439,7 +439,7 @@ sgen_check_whole_heap (gboolean allow_missing_pinned)
 
 	broken_heap = FALSE;
 	sgen_scan_area_with_callback (nursery_section->data, nursery_section->end_data, verify_object_pointers_callback, (void*) (size_t) allow_missing_pinned, FALSE);
-	major_collector.iterate_objects (TRUE, TRUE, verify_object_pointers_callback, (void*) (size_t) allow_missing_pinned);
+	major_collector.iterate_objects (TRUE, TRUE, TRUE, verify_object_pointers_callback, (void*) (size_t) allow_missing_pinned);
 	sgen_los_iterate_objects (verify_object_pointers_callback, (void*) (size_t) allow_missing_pinned);
 
 	g_assert (!broken_heap);
@@ -563,7 +563,7 @@ sgen_check_major_heap_marked (void)
 {
 	setup_valid_nursery_objects ();
 
-	major_collector.iterate_objects (TRUE, TRUE, check_marked_callback, (void*)FALSE);
+	major_collector.iterate_objects (TRUE, TRUE, TRUE, check_marked_callback, (void*)FALSE);
 	sgen_los_iterate_objects (check_marked_callback, (void*)TRUE);
 }
 
