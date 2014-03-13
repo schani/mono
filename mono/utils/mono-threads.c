@@ -141,7 +141,7 @@ register_thread (MonoThreadInfo *info, gpointer baseptr)
 	/*set TLS early so SMR works */
 	mono_native_tls_set_value (thread_info_key, info);
 
-	THREADS_DEBUG ("registering info %p tid %p small id %x\n", info, mono_thread_info_get_tid (info), info->small_id);
+	THREADS_DEBUG ("registering in %p info %p tid %p small id %x\n", mono_native_thread_id_get (), info, mono_thread_info_get_tid (info), info->small_id);
 
 	if (threads_callbacks.thread_register) {
 		if (threads_callbacks.thread_register (info, baseptr) == NULL) {
@@ -168,7 +168,7 @@ unregister_thread (void *arg)
 	int small_id = info->small_id;
 	g_assert (info);
 
-	THREADS_DEBUG ("unregistering info %p\n", info);
+	THREADS_DEBUG ("unregistering in %p info %p\n", mono_native_thread_id_get (), info);
 
 	mono_threads_core_unregister (info);
 
