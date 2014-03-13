@@ -194,6 +194,49 @@ release_gc_locks (void)
 static TV_DECLARE (stop_world_time);
 static unsigned long max_pause_usec = 0;
 
+#define MAX_THREAD_INFOS 1024
+static int num_thread_infos_at_stop;
+static SgenThreadInfo *thread_infos_at_stop [MAX_THREAD_INFOS];
+
+static void
+reset_thread_infos (void)
+{
+	num_thread_infos_at_stop = 0;
+}
+
+static void
+record_thread_info (SgenThreadInfo *info)
+{
+	g_assert (num_thread_infos_at_stop < MAX_THREAD_INFOS);
+	thread_infos_at_stop [num_thread_infos_at_stop++] = info;
+}
+
+static void
+record_thread_infos (void)
+{
+	SgenThreadInfo *info;
+	reset_thread_infos ();
+	FOREACH_THREAD_SAFE (info) {
+		record_thread_info (info);
+	} END_FOREACH_THREAD_SAFE;
+}
+
+static void
+verify_thread_infos (void)
+{
+	SgenThreadInfo *info;
+	int i = 0;
+	FOREACH_THREAD_SAFE (info) {
+		if (i >= num_thread_infos_at_stop) {
+			g_print ("more thread infos than recorded at stop\n");
+			break;
+		}
+		if (thread_infos_at_stop [i] != info)
+			g_print ("different thread at index %d: want %p  have %p\n", i, thread_infos_at_stop [i], info);
+		++i;
+	} END_FOREACH_THREAD_SAFE;
+}
+
 /* LOCKING: assumes the GC lock is held */
 int
 sgen_stop_world (int generation)
@@ -225,6 +268,8 @@ sgen_stop_world (int generation)
 	sgen_memgov_collection_start (generation);
 	sgen_bridge_reset_data ();
 
+	record_thread_infos ();
+
 	return count;
 }
 
@@ -237,6 +282,8 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 	TV_DECLARE (end_sw);
 	TV_DECLARE (end_bridge);
 	unsigned long usec, bridge_usec;
+
+	verify_thread_infos ();
 
 	/* notify the profiler of the leftovers */
 	/* FIXME this is the wrong spot at we can STW for non collection reasons. */

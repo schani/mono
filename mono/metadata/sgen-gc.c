@@ -4107,6 +4107,7 @@ sgen_thread_register (SgenThreadInfo* info, void *addr)
 	info->signal = 0;
 #endif
 	info->skip = 0;
+	info->processed = FALSE;
 	info->stack_start = NULL;
 	info->stopped_ip = NULL;
 	info->stopped_domain = NULL;

@@ -81,6 +81,7 @@ struct _SgenThreadInfo {
 	underlying thread is dead.
 	*/
 	int skip;
+	gboolean processed;
 	volatile int in_critical_region;
 
 	/*
