@@ -106,6 +106,7 @@ mono_thread_info_remove (MonoThreadInfo *info)
 static void
 free_thread_info (gpointer mem)
 {
+  /*
 	MonoThreadInfo *info = mem;
 
 	MONO_SEM_DESTROY (&info->suspend_semaphore);
@@ -114,6 +115,7 @@ free_thread_info (gpointer mem)
 	mono_threads_platform_free (info);
 
 	g_free (info);
+  */
 }
 
 int
