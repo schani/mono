@@ -4037,7 +4037,7 @@ scan_thread_data (void *start_nursery, void *end_nursery, gboolean precise, Gray
 	scan_area_arg_start = start_nursery;
 	scan_area_arg_end = end_nursery;
 
-	FOREACH_THREAD (info) {
+	FOREACH_THREAD_SAFE (info) {
 		if (info->skip) {
 			SGEN_LOG (3, "Skipping dead thread %p, range: %p-%p, size: %td", info, info->stack_start, info->stack_end, (char*)info->stack_end - (char*)info->stack_start);
 			continue;
@@ -4073,7 +4073,7 @@ scan_thread_data (void *start_nursery, void *end_nursery, gboolean precise, Gray
 					start_nursery, end_nursery, PIN_TYPE_STACK);
 #endif
 		}
-	} END_FOREACH_THREAD
+	} END_FOREACH_THREAD_SAFE
 }
 
 static gboolean

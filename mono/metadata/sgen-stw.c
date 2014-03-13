@@ -155,7 +155,7 @@ restart_threads_until_none_in_managed_allocator (void)
 		}
 
 		/* stop them again */
-		FOREACH_THREAD (info) {
+		FOREACH_THREAD_SAFE (info) {
 			gboolean result;
 			if (info->skip || info->stopped_ip == NULL)
 				continue;
@@ -166,7 +166,7 @@ restart_threads_until_none_in_managed_allocator (void)
 			} else {
 				info->skip = 1;
 			}
-		} END_FOREACH_THREAD
+		} END_FOREACH_THREAD_SAFE
 		/* some threads might have died */
 		num_threads_died += restart_count - restarted_count;
 		/* wait for the threads to signal their suspension
@@ -244,14 +244,14 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 		sgen_gc_event_moves ();
 	mono_profiler_gc_event (MONO_GC_EVENT_PRE_START_WORLD, generation);
 	MONO_GC_WORLD_RESTART_BEGIN (generation);
-	FOREACH_THREAD (info) {
+	FOREACH_THREAD_SAFE (info) {
 		info->stack_start = NULL;
 #ifdef USE_MONO_CTX
 		memset (&info->ctx, 0, sizeof (MonoContext));
 #else
 		memset (&info->regs, 0, sizeof (info->regs));
 #endif
-	} END_FOREACH_THREAD
+	} END_FOREACH_THREAD_SAFE
 
 	count = sgen_thread_handshake (FALSE);
 	TV_GETTIME (end_sw);

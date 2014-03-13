@@ -687,13 +687,13 @@ sgen_clear_tlabs (void)
 {
 	SgenThreadInfo *info;
 
-	FOREACH_THREAD (info) {
+	FOREACH_THREAD_SAFE (info) {
 		/* A new TLAB will be allocated when the thread does its first allocation */
 		*info->tlab_start_addr = NULL;
 		*info->tlab_next_addr = NULL;
 		*info->tlab_temp_end_addr = NULL;
 		*info->tlab_real_end_addr = NULL;
-	} END_FOREACH_THREAD
+	} END_FOREACH_THREAD_SAFE
 }
 
 static MonoMethod* alloc_method_cache [ATYPE_NUM];
