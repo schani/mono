@@ -226,10 +226,12 @@ MonoThreadInfo*
 mono_thread_info_current (void)
 {
 	MonoThreadInfo *info = (MonoThreadInfo*)mono_native_tls_get_value (thread_info_key);
+	MonoNativeThreadId id;
 	if (info)
 		return info;
 
-	info = mono_thread_info_lookup (mono_native_thread_id_get ()); /*info on HP1*/
+	id = mono_native_thread_id_get ();
+	info = mono_thread_info_lookup (id); /*info on HP1*/
 
 	/*
 	We might be called during thread cleanup, but we cannot be called after cleanup as happened.
