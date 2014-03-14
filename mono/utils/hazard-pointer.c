@@ -115,6 +115,8 @@ mono_thread_small_id_alloc (void)
 		mono_memory_write_barrier ();
 	}
 
+	g_print ("small id %d for thread %p\n", id, pthread_self ());
+
 	LeaveCriticalSection (&small_id_mutex);
 
 	return id;
@@ -129,6 +131,8 @@ mono_thread_small_id_free (int id)
 	g_assert (id >= 0 && id < small_id_table->size);
 	g_assert (mono_bitset_test_fast (small_id_table, id));
 	mono_bitset_clear_fast (small_id_table, id);
+
+	g_print ("freed small id %d for thread %p\n", id, pthread_self ());
 
 	LeaveCriticalSection (&small_id_mutex);
 }
