@@ -65,6 +65,15 @@ mono_lls_init (MonoLinkedListSet *list, void (*free_node_func)(void *))
 	list->free_node_func = free_node_func;
 }
 
+#define MAX_ENTRIES 128
+static __thread int num_entries;
+static __thread MonoLinkedListSetNode *entries [MAX_ENTRIES];
+static __thread gboolean did_free;
+static __thread uintptr_t search_key;
+static __thread gboolean search_success;
+static __thread MonoLinkedListSetNode *entry_at_exit;
+static __thread MonoThreadHazardPointers *search_hp;
+
 /*
 Search @list for element with key @key.
 The nodes next, cur and prev are returned in @hp.
@@ -83,6 +92,13 @@ mono_lls_find (MonoLinkedListSet *list, MonoThreadHazardPointers *hp, uintptr_t 
 	uintptr_t cur_key;
 
 try_again:
+	num_entries = 0;
+	did_free = FALSE;
+	search_key = key;
+	search_success = FALSE;
+	entry_at_exit = NULL;
+	search_hp = hp;
+
 	prev = &list->head;
 
 	/*
@@ -95,11 +111,15 @@ try_again:
 	mono_hazard_pointer_set (hp, 2, prev);
 
 	cur = get_hazardous_pointer_with_mask ((gpointer*)prev, hp, 1);
+	entries [num_entries++] = cur;
+	entry_at_exit = cur;
 
 	while (1) {
 		if (cur == NULL)
 			return FALSE;
 		next = get_hazardous_pointer_with_mask ((gpointer*)&cur->next, hp, 0);
+		entries [num_entries++] = next;
+		g_assert (next != cur);
 		cur_key = cur->key;
 
 		/*
@@ -113,8 +133,10 @@ try_again:
 			goto try_again;
 
 		if (!mono_lls_pointer_get_mark (next)) {
-			if (cur_key >= key)
-				return cur_key == key;
+			if (cur_key >= key) {
+				search_success = (cur_key == key);
+				return search_success;
+			}
 
 			prev = &cur->next;
 			mono_hazard_pointer_set (hp, 2, cur);
@@ -126,11 +148,13 @@ try_again:
 				mono_hazard_pointer_clear (hp, 1);
 				if (list->free_node_func)
 					mono_thread_hazardous_free_or_queue (cur, list->free_node_func, FALSE, TRUE);
+				did_free = TRUE;
 			} else
 				goto try_again;
 		}
 		cur = mono_lls_pointer_unmask (next);
 		mono_hazard_pointer_set (hp, 1, cur);
+		entry_at_exit = cur;
 	}
 }
 
