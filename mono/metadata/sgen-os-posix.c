@@ -57,9 +57,12 @@ suspend_thread (SgenThreadInfo *info, void *context)
 	gpointer regs [ARCH_NUM_REGS];
 #endif
 	gpointer stack_start;
+	int i;
 
 	info->stopped_domain = mono_domain_get ();
-	info->stopped_ip = context ? (gpointer) ARCH_SIGCTX_IP (context) : NULL;
+	for (i = 1; i < NUM_LAST_STOPPED_IPS; ++i)
+		info->last_stopped_ip [i] = info->last_stopped_ip [i-1];
+	info->last_stopped_ip [0] = info->stopped_ip = context ? (gpointer) ARCH_SIGCTX_IP (context) : NULL;
 	info->signal = 0;
 	stop_count = sgen_global_stop_count;
 	/* duplicate signal */

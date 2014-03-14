@@ -111,6 +111,9 @@ struct _SgenThreadInfo {
 	gpointer stopped_ip;	/* only valid if the thread is stopped */
 	MonoDomain *stopped_domain; /* dsto */
 
+#define NUM_LAST_STOPPED_IPS 4
+	gpointer last_stopped_ip [NUM_LAST_STOPPED_IPS];
+
 	/*FIXME pretty please finish killing ARCH_NUM_REGS */
 #ifdef USE_MONO_CTX
 	MonoContext ctx;		/* ditto */
