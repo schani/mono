@@ -176,34 +176,64 @@ sgen_wait_for_suspend_ack (int count)
 int
 sgen_thread_handshake (BOOL suspend)
 {
-	int count, result;
+	int count, result, total_count, num_iterations;
 	SgenThreadInfo *info;
 	int signum = suspend ? suspend_signal_num : restart_signal_num;
+	gboolean new_threads = FALSE;
 
 	MonoNativeThreadId me = mono_native_thread_id_get ();
 
-	count = 0;
-	FOREACH_THREAD_SAFE (info) {
-		if (mono_native_thread_id_equals (mono_thread_info_get_tid (info), me)) {
-			continue;
-		}
-		if (info->gc_disabled)
-			continue;
-		/*if (signum == suspend_signal_num && info->stop_count == global_stop_count)
-			continue;*/
-		result = mono_threads_pthread_kill (info, signum);
-		if (result == 0) {
-			count++;
-		} else {
-			info->skip = 1;
-		}
-	} END_FOREACH_THREAD_SAFE
+	total_count = 0;
+	num_iterations = 0;
+	do {
+		new_threads = FALSE;
+		count = 0;
+		++num_iterations;
 
-	sgen_wait_for_suspend_ack (count);
+		FOREACH_THREAD_SAFE (info) {
+			if (suspend && info->processed)
+				continue;
 
-	SGEN_LOG (4, "%s handshake for %d threads\n", suspend ? "suspend" : "resume", count);
+			info->processed = suspend;
 
-	return count;
+			if (mono_native_thread_id_equals (mono_thread_info_get_tid (info), me)) {
+				continue;
+			}
+			if (info->gc_disabled)
+				continue;
+			/*if (signum == suspend_signal_num && info->stop_count == global_stop_count)
+			  continue;*/
+			result = mono_threads_pthread_kill (info, signum);
+			if (result == 0) {
+				count++;
+				total_count++;
+			} else {
+				info->skip = 1;
+			}
+
+			new_threads = TRUE;
+		} END_FOREACH_THREAD_SAFE;
+
+		sgen_wait_for_suspend_ack (count);
+
+		/*
+		result = 0;
+		FOREACH_THREAD_SAFE (info) {
+			++result;
+		} END_FOREACH_THREAD_SAFE;
+
+		g_assert (result == total_count);
+		*/
+
+		if (suspend && count && count != total_count)
+			SGEN_LOG (0, "suspend needed another iteration: %d new, %d total\n", count, total_count);
+	} while (suspend && new_threads);
+
+	g_assert (num_iterations <= 2);
+
+	SGEN_LOG (4, "%s handshake for %d threads\n", suspend ? "suspend" : "resume", total_count);
+
+	return total_count;
 }
 
 void
