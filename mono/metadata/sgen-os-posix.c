@@ -127,6 +127,16 @@ suspend_thread (SgenThreadInfo *info, void *context)
 /* LOCKING: assumes the GC lock is held (by the stopping thread) */
 MONO_SIGNAL_HANDLER_FUNC (static, suspend_handler, (int sig, siginfo_t *siginfo, void *context))
 {
+	/*
+	 * The suspend signal handler potentially uses syscalls that
+	 * can set errno, and it calls functions that use the hazard
+	 * pointer machinery.  Since we're interrupting other code we
+	 * must restore those to the values they had when we
+	 * interrupted.
+	 */
+
+	MonoThreadHazardPointers *hp = mono_hazard_pointer_get ();
+	MonoThreadHazardPointers old_hp = *hp;
 	SgenThreadInfo *info;
 	int old_errno = errno;
 
@@ -134,6 +144,7 @@ MONO_SIGNAL_HANDLER_FUNC (static, suspend_handler, (int sig, siginfo_t *siginfo,
 	suspend_thread (info, context);
 
 	errno = old_errno;
+	*hp = old_hp;
 }
 
 MONO_SIGNAL_HANDLER_FUNC (static, restart_handler, (int sig))
