@@ -151,8 +151,25 @@ zero_tlab_if_necessary (void *p, size_t size)
 	if (nursery_clear_policy == CLEAR_AT_TLAB_CREATION) {
 		memset (p, 0, size);
 	} else {
-		SGEN_ASSERT (0, size >= sizeof (MonoArray), "TLAB can't be smaller than an empty array");
-		memset (p, 0, sizeof (MonoArray));
+		/*
+		 * This function is called for all allocations in
+		 * TLABs.  TLABs originate from fragments, which are
+		 * initialized to be faux arrays.  The remainder of
+		 * the fragments are zeroed out at initialization for
+		 * CLEAR_AT_GC, so here we just need to make sure that
+		 * the array header is zeroed.  Since we don't know
+		 * whether we're called for the start of a fragment or
+		 * for somewhere in between, we zero in any case, just
+		 * to make sure.
+		 */
+
+		if (size >= sizeof (MonoArray))
+			memset (p, 0, sizeof (MonoArray));
+		else {
+			static guint8 zeros [sizeof (MonoArray)];
+
+			SGEN_ASSERT (0, !memcmp (p, zeros, size), "TLAB segment must be zeroed out.");
+		}
 	}
 }
 
