@@ -67,3 +67,26 @@ ves_icall_System_String_GetLOSLimit (void)
 
 	return (limit - 2 - sizeof (MonoString)) / 2;
 }
+
+void
+ves_icall_System_String_InternalSetLength (MonoString *str, gint32 new_length)
+{
+	mono_unichar2 *new_end = (str->chars + new_length);
+	g_assert (new_length <= str->length);
+	
+	/* zero terminate, we can pass string objects directly via pinvoke
+	 * we also zero the rest of the string, since SGen needs to be
+	 * able to handle the changing size (it will skip the 0 bytes). */
+	 
+	if (str->length < ves_icall_System_String_GetLOSLimit()) {
+		CHECK_HIGH_CANARY ((str->chars + str->length +1))
+		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2) + CANARY_SIZE);
+		memcpy (new_end +1, CANARY_OVER_STRING, CANARY_SIZE);
+	}
+	else {
+		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2));
+	}
+	
+	str->length = new_length;
+}
+
