@@ -64,7 +64,7 @@ enum {
 
 #undef OPDEF
 
-static gboolean use_managed_allocator = TRUE;
+static gboolean use_managed_allocator = FALSE;
 
 #ifdef HEAVY_STATISTICS
 static long long stat_objects_alloced = 0;
@@ -188,9 +188,12 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	void **p;
 	char *new_next;
 	TLAB_ACCESS_INIT;
+	size_t real_size = size;
+	
+	CANARIFY_SIZE(size);
 
 	HEAVY_STAT (++stat_objects_alloced);
-	if (size <= SGEN_MAX_SMALL_OBJ_SIZE)
+	if (real_size <= SGEN_MAX_SMALL_OBJ_SIZE)
 		HEAVY_STAT (stat_bytes_alloced += size);
 	else
 		HEAVY_STAT (stat_bytes_alloced_los += size);
@@ -206,7 +209,7 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 		if (collect_before_allocs) {
 			if (((current_alloc % collect_before_allocs) == 0) && nursery_section) {
 				sgen_perform_collection (0, GENERATION_NURSERY, "collect-before-alloc-triggered", TRUE);
-				if (!degraded_mode && sgen_can_alloc_size (size) && size <= SGEN_MAX_SMALL_OBJ_SIZE) {
+				if (!degraded_mode && sgen_can_alloc_size (size) && real_size <= SGEN_MAX_SMALL_OBJ_SIZE) {
 					// FIXME:
 					g_assert_not_reached ();
 				}
@@ -228,8 +231,8 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	 * specially by the world-stopping code.
 	 */
 
-	if (size > SGEN_MAX_SMALL_OBJ_SIZE) {
-		p = sgen_los_alloc_large_inner (vtable, size);
+	if (real_size > SGEN_MAX_SMALL_OBJ_SIZE) {
+		p = sgen_los_alloc_large_inner (vtable, ALIGN_UP (real_size));
 	} else {
 		/* tlab_next and tlab_temp_end are TLS vars so accessing them might be expensive */
 
@@ -251,6 +254,7 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 			if (G_UNLIKELY (MONO_GC_NURSERY_OBJ_ALLOC_ENABLED ()))
 				MONO_GC_NURSERY_OBJ_ALLOC ((mword)p, size, vtable->klass->name_space, vtable->klass->name);
 			g_assert (*p == NULL);
+			CANARIFY_ALLOC(p,real_size);
 			mono_atomic_store_seq (p, vtable);
 
 			return p;
@@ -346,20 +350,20 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 			TLAB_TEMP_END = MIN (TLAB_REAL_END, TLAB_NEXT + SGEN_SCAN_START_SIZE);
 			SGEN_LOG (5, "Expanding local alloc: %p-%p", TLAB_NEXT, TLAB_TEMP_END);
 		}
+		CANARIFY_ALLOC(p,real_size);
 	}
 
 	if (G_LIKELY (p)) {
 		SGEN_LOG (6, "Allocated object %p, vtable: %p (%s), size: %zd", p, vtable, vtable->klass->name, size);
 		binary_protocol_alloc (p, vtable, size);
 		if (G_UNLIKELY (MONO_GC_MAJOR_OBJ_ALLOC_LARGE_ENABLED ()|| MONO_GC_NURSERY_OBJ_ALLOC_ENABLED ())) {
-			if (size > SGEN_MAX_SMALL_OBJ_SIZE)
+			if (real_size > SGEN_MAX_SMALL_OBJ_SIZE)
 				MONO_GC_MAJOR_OBJ_ALLOC_LARGE ((mword)p, size, vtable->klass->name_space, vtable->klass->name);
 			else
 				MONO_GC_NURSERY_OBJ_ALLOC ((mword)p, size, vtable->klass->name_space, vtable->klass->name);
 		}
 		mono_atomic_store_seq (p, vtable);
 	}
-
 	return p;
 }
 
@@ -369,12 +373,15 @@ mono_gc_try_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	void **p;
 	char *new_next;
 	TLAB_ACCESS_INIT;
+	size_t real_size = size;
+
+	CANARIFY_SIZE(size);
 
 	size = ALIGN_UP (size);
-	SGEN_ASSERT (9, size >= sizeof (MonoObject), "Object too small");
+	SGEN_ASSERT (9, real_size >= sizeof (MonoObject), "Object too small");
 
 	g_assert (vtable->gc_descr);
-	if (size > SGEN_MAX_SMALL_OBJ_SIZE)
+	if (real_size > SGEN_MAX_SMALL_OBJ_SIZE)
 		return NULL;
 
 	if (G_UNLIKELY (size > tlab_size)) {
@@ -445,6 +452,7 @@ mono_gc_try_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 		MONO_GC_NURSERY_OBJ_ALLOC ((mword)p, size, vtable->klass->name_space, vtable->klass->name);
 	g_assert (*p == NULL); /* FIXME disable this in non debug builds */
 
+	CANARIFY_ALLOC(p,real_size);
 	mono_atomic_store_seq (p, vtable);
 
 	return p;
