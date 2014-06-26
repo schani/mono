@@ -386,5 +386,73 @@ guint mono_gc_get_vtable_bits (MonoClass *class) MONO_INTERNAL;
 
 void mono_gc_register_altstack (gpointer stack, gint32 stack_size, gpointer altstack, gint32 altstack_size) MONO_INTERNAL;
 
+/*
+ * Macros for injecting/validating canary (guard) words on allocations
+ * Notes/Requirements:
+ * CANARY_STRING can not be 0'ed (or lead with 0's) as heap-scanning functions may reclaim it
+ * CANARY_SIZE must be multiple of word size in bytes
+ * Canary space is not included on checks against SGEN_MAX_SMALL_OBJ_SIZE
+ * 
+ */
+//#define ENABLE_CANARIES 1
+
+#ifdef ENABLE_CANARIES
+
+
+#define CANARY_SIZE 8
+#define CANARY_UNDER_STRING "voupepes"
+#define CANARY_OVER_STRING  "koupepia"
+
+#define CANARIFY_SIZE(size) size = size + (CANARY_SIZE * 2)
+
+#define CANARIFY_ALLOC(addr,size) do {	\
+					g_assert (CANARY_SIZE <= strlen (CANARY_UNDER_STRING) && CANARY_SIZE <= strlen (CANARY_OVER_STRING));	\
+					memcpy ((char*)addr, CANARY_UNDER_STRING, CANARY_SIZE);	\
+					addr = (typeof(addr)) ((char*) addr + CANARY_SIZE);	\
+					memcpy ((char*)addr + size, CANARY_OVER_STRING, CANARY_SIZE);	\
+			} while (0);
+
+#define LOW_CANARY_VALID(addr) (strncmp ((char*) addr, CANARY_UNDER_STRING, CANARY_SIZE) == 0)
+#define HIGH_CANARY_VALID(addr) (strncmp ((char*) addr, CANARY_OVER_STRING, CANARY_SIZE) == 0)
+
+#define CHECK_LOW_CANARY(addr) do {	\
+					g_assert (LOW_CANARY_VALID (addr));	\
+			} while (0);
+			
+#define CHECK_HIGH_CANARY(addr) do {	\
+					g_assert (HIGH_CANARY_VALID (addr));	\
+			} while (0);
+
+#define CHECK_CANARIES(addr) do {	\
+					CHECK_LOW_CANARY (addr);	\
+					BYPASS_CANARY (addr);	\
+					CHECK_HIGH_CANARY ((char*)addr + sgen_safe_object_get_size_unaligned (addr));	\
+			} while (0);
+
+#define BYPASS_CANARY(addr) do {	\
+					addr = ((char*) addr) + CANARY_SIZE;	\
+			} while (0);
+	 
+#define INCLUDE_CANARY(addr) do {	\
+					addr = ((char*) addr) - CANARY_SIZE;	\
+			} while (0);
+
+#else /* !ENABLE_CANARIES */
+
+#define CANARY_SIZE 0
+#define CANARY_UNDER_STRING ""
+#define CANARY_OVER_STRING  ""
+#define LOW_CANARY_VALID(addr) TRUE
+#define HIGH_CANARY_VALID(addr) TRUE
+#define CHECK_LOW_CANARY(addr)
+#define CHECK_HIGH_CANARY(addr)
+#define CANARIFY_SIZE(size)
+#define CANARIFY_ALLOC(addr,size)
+#define CHECK_CANARIES(addr)
+#define BYPASS_CANARY(addr) 
+#define INCLUDE_CANARY(addr) 
+
+#endif
+
 #endif /* __MONO_METADATA_GC_INTERNAL_H__ */
 
