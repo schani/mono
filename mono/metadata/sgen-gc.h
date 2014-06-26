@@ -800,6 +800,22 @@ sgen_safe_object_get_size (MonoObject *obj)
        return sgen_par_object_get_size ((MonoVTable*)SGEN_LOAD_VTABLE (obj), obj);
 }
 
+/*
+ * This variant guarantees to return the exact size of the object
+ * before alignment. Needed for canary support.
+ */
+static inline guint
+sgen_safe_object_get_size_unaligned (MonoObject *obj)
+{
+       char *forwarded;
+
+       if ((forwarded = SGEN_OBJECT_IS_FORWARDED (obj))) {
+               obj = (MonoObject*)forwarded;
+       }
+
+       return slow_object_get_size ((MonoVTable*)SGEN_LOAD_VTABLE (obj), obj);
+}
+
 const char* sgen_safe_name (void* obj) MONO_INTERNAL;
 
 gboolean sgen_object_is_live (void *obj) MONO_INTERNAL;
