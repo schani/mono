@@ -698,7 +698,6 @@ static void
 clear_domain_process_minor_object_callback (char *obj, size_t size, MonoDomain *domain)
 {
 	if (clear_domain_process_object (obj, domain)) {
-		INCLUDE_CANARY (obj);
 		CANARIFY_SIZE (size);
 		memset (obj, 0, size);
 	}
@@ -937,25 +936,25 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 			idx = ((char*)addr - (char*)section->data) / SCAN_START_SIZE;
 			g_assert (idx < section->num_scan_start);
 			search_start = (void*)section->scan_starts [idx];
-			if (!search_start || search_start > (void*) ((char*)addr - CANARY_SIZE )) {
+			if (!search_start || search_start > addr) {
 				while (idx) {
 					--idx;
 					search_start = section->scan_starts [idx];
 					if (search_start && search_start <= addr)
 						break;
 				}
-				if (!search_start || search_start > (void*) ((char*)addr - CANARY_SIZE )) {
+				if (!search_start || search_start > addr)
 					search_start = start_nursery;
-				}
 			}
 			if (search_start < last_obj) {
-				if (((MonoObject*)last_obj)->synchronisation == GINT_TO_POINTER (-1)) { 
-					search_start = (char*)last_obj + last_obj_size;
-				}
-				else { 
-					search_start = (char*)last_obj + last_obj_size + CANARY_SIZE;
-				}
-			}
+ 				if (((MonoObject*)last_obj)->synchronisation == GINT_TO_POINTER (-1)) { 
+ 					search_start = (char*)last_obj + last_obj_size;
+ 				}
+ 				else { 
+ 					search_start = (char*)last_obj + last_obj_size + CANARY_SIZE;
+ 				}
+  			}
+		
 			/* now addr should be in an object a short distance from search_start
 			 * Note that search_start must point to zeroed mem or point to an object.
 			 */
@@ -974,21 +973,11 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					continue;
 				}
 							
-				if (!LOW_CANARY_VALID(search_start)) {
-					 if (((MonoObject*)search_start)->synchronisation == GINT_TO_POINTER (-1)) {  //FIXME: This will crash instead of asserting canary
+				if (((MonoObject*)search_start)->synchronisation == GINT_TO_POINTER (-1)) {
 						/* Marks the beginning of a nursery fragment, skip */
 						last_obj = search_start; 
 						last_obj_size = ALIGN_UP(sgen_safe_object_get_size ((MonoObject*)search_start));	
-					 }
-					 else { 
-					 	printf("uncanaried? %s\n",safe_name(search_start));
-						printf("uncanaried? %d\n",sgen_safe_object_get_size_unaligned(search_start));
-					 	CHECK_LOW_CANARY (search_start); //should always assert
-					 }
-
 				} else {
-					BYPASS_CANARY (search_start);
-
 					last_obj = search_start; 
 					last_obj_real_size = sgen_safe_object_get_size_unaligned ((MonoObject*)search_start);
 					last_obj_size = ALIGN_UP(last_obj_real_size);
@@ -2166,6 +2155,10 @@ verify_nursery (void)
 			if (cur > hole_start)
 				SGEN_LOG (1, "HOLE [%p %p %d]", hole_start, cur, (int)(cur - hole_start));
 			SGEN_LOG (1, "OBJ  [%p %p %d %d %s %d]", cur, cur + size, (int)size, (int)ss, sgen_safe_name ((MonoObject*)cur), (gpointer)LOAD_VTABLE (cur) == sgen_get_array_fill_vtable ());
+		}
+		if ((MonoVTable*)SGEN_LOAD_VTABLE (cur) != array_fill_vtable) {
+			CHECK_CANARIES (cur);
+			CANARIFY_SIZE (size);
 		}
 		cur += size;
 		hole_start = cur;

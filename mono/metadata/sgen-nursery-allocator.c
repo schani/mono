@@ -784,7 +784,6 @@ sgen_build_nursery_fragments (GCMemSection *nursery_section, void **start, int n
 			else
 				SGEN_UNPIN_OBJECT (addr0);
 			size = SGEN_ALIGN_UP (sgen_safe_object_get_size ((MonoObject*)addr0));
-			INCLUDE_CANARY (addr0);
 			CANARIFY_SIZE (size);
 			sgen_set_nursery_scan_start (addr0);
 			frag_end = addr0;
