@@ -248,13 +248,12 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 			 * FIXME: We might need a memory barrier here so the change to tlab_next is 
 			 * visible before the vtable store.
 			 */
-
+			CANARIFY_ALLOC(p,real_size);
 			SGEN_LOG (6, "Allocated object %p, vtable: %p (%s), size: %zd", p, vtable, vtable->klass->name, size);
 			binary_protocol_alloc (p , vtable, size);
 			if (G_UNLIKELY (MONO_GC_NURSERY_OBJ_ALLOC_ENABLED ()))
 				MONO_GC_NURSERY_OBJ_ALLOC ((mword)p, size, vtable->klass->name_space, vtable->klass->name);
 			g_assert (*p == NULL);
-			CANARIFY_ALLOC(p,real_size);
 			mono_atomic_store_seq (p, vtable);
 
 			return p;
@@ -446,13 +445,13 @@ mono_gc_try_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 	HEAVY_STAT (++stat_objects_alloced);
 	HEAVY_STAT (stat_bytes_alloced += size);
 
+	CANARIFY_ALLOC(p,real_size);
 	SGEN_LOG (6, "Allocated object %p, vtable: %p (%s), size: %zd", p, vtable, vtable->klass->name, size);
 	binary_protocol_alloc (p, vtable, size);
 	if (G_UNLIKELY (MONO_GC_NURSERY_OBJ_ALLOC_ENABLED ()))
 		MONO_GC_NURSERY_OBJ_ALLOC ((mword)p, size, vtable->klass->name_space, vtable->klass->name);
 	g_assert (*p == NULL); /* FIXME disable this in non debug builds */
 
-	CANARIFY_ALLOC(p,real_size);
 	mono_atomic_store_seq (p, vtable);
 
 	return p;
