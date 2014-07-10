@@ -291,6 +291,7 @@ static gboolean disable_major_collections = FALSE;
 gboolean do_pin_stats = FALSE;
 static gboolean do_verify_nursery = FALSE;
 static gboolean do_dump_nursery_content = FALSE;
+static gboolean enable_canaries = FALSE;
 
 #ifdef HEAVY_STATISTICS
 long long stat_objects_alloced_degraded = 0;
@@ -632,7 +633,7 @@ sgen_scan_area_with_callback (char *start, char *end, IterateObjectCallbackFunc 
 		}
 
 		if ((MonoVTable*)SGEN_LOAD_VTABLE (obj) != array_fill_vtable) {
-			CHECK_CANARIES (obj);
+			CHECK_CANARY_FOR_OBJECT (obj);
 			size = ALIGN_UP (safe_object_get_size ((MonoObject*)obj));
 			callback (obj, size, data);
 			CANARIFY_SIZE (size);
@@ -982,13 +983,13 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					last_obj_real_size = sgen_safe_object_get_size_unaligned ((MonoObject*)search_start);
 					last_obj_size = ALIGN_UP(last_obj_real_size);
 					
-					if (!HIGH_CANARY_VALID (search_start + last_obj_real_size)) {
+					if (!CANARY_VALID (search_start + last_obj_real_size)) {
 						printf("uncanaried-high?\n");
 						printf("uncanaried? %s %d \n",safe_name(search_start), sgen_safe_object_get_size_unaligned(search_start));
 						printf("uncanaried? %s %d \n",safe_name((char*)search_start + last_obj_real_size), sgen_safe_object_get_size_unaligned( (MonoObject*) ((char*)search_start + last_obj_real_size)));
 						
 					} 
-					CHECK_HIGH_CANARY (search_start + last_obj_real_size);
+					CHECK_CANARY (search_start + last_obj_real_size);
 
 					SGEN_LOG (8, "Pinned try match %p (%s), size %zd", last_obj, safe_name (last_obj), last_obj_size);
 					if (addr >= search_start && (char*)addr < (char*)last_obj + last_obj_real_size) {
@@ -2157,7 +2158,7 @@ verify_nursery (void)
 			SGEN_LOG (1, "OBJ  [%p %p %d %d %s %d]", cur, cur + size, (int)size, (int)ss, sgen_safe_name ((MonoObject*)cur), (gpointer)LOAD_VTABLE (cur) == sgen_get_array_fill_vtable ());
 		}
 		if ((MonoVTable*)SGEN_LOAD_VTABLE (cur) != array_fill_vtable) {
-			CHECK_CANARIES (cur);
+			CHECK_CANARY_FOR_OBJECT (cur);
 			CANARIFY_SIZE (size);
 		}
 		cur += size;
@@ -5005,6 +5006,9 @@ mono_gc_base_init (void)
 			} else if (g_str_has_prefix (opt, "binary-protocol=")) {
 				char *filename = strchr (opt, '=') + 1;
 				binary_protocol_init (filename);
+			} else if (!strcmp (opt, "enable-canaries")) {
+				do_verify_nursery = TRUE;
+				enable_canaries = TRUE;
 			} else if (!sgen_bridge_handle_gc_debug (opt)) {
 				sgen_env_var_error (MONO_GC_DEBUG_NAME, "Ignoring.", "Unknown option `%s`.", opt);
 
@@ -5033,6 +5037,7 @@ mono_gc_base_init (void)
 				fprintf (stderr, "  print-pinning\n");
 				fprintf (stderr, "  heap-dump=<filename>\n");
 				fprintf (stderr, "  binary-protocol=<filename>\n");
+				fprintf (stderr, "  enable-canaries\n");
 				sgen_bridge_print_gc_debug_usage ();
 				fprintf (stderr, "\n");
 
@@ -5424,5 +5429,28 @@ mono_gc_register_finalizer_callbacks (MonoGCFinalizerCallbacks *callbacks)
 
 	fin_callbacks = *callbacks;
 }
+
+void
+mono_gc_set_string_length (MonoString *str, gint32 new_length)
+{
+	mono_unichar2 *new_end = (str->chars + new_length);
+	
+	/* zero terminate, we can pass string objects directly via pinvoke
+	 * we also zero the rest of the string, since SGen needs to be
+	 * able to handle the changing size (it will skip the 0 bytes). */
+	 
+	if (str->length < mono_gc_get_los_limit ()) {
+		CHECK_CANARY ((str->chars + str->length +1))
+		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2) + CANARY_SIZE);
+		memcpy (new_end +1, CANARY_STRING, CANARY_SIZE);
+	}
+	else {
+		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2));
+	}
+	
+	str->length = new_length;
+}
+
+
 
 #endif /* HAVE_SGEN_GC */
