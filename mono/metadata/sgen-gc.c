@@ -977,6 +977,7 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 				if (((MonoObject*)search_start)->synchronisation == GINT_TO_POINTER (-1)) {
 						/* Marks the beginning of a nursery fragment, skip */
 						last_obj = search_start; 
+						last_obj_real_size = sgen_safe_object_get_size_unaligned ((MonoObject*)search_start);
 						last_obj_size = ALIGN_UP(sgen_safe_object_get_size ((MonoObject*)search_start));	
 				} else {
 					last_obj = search_start; 
