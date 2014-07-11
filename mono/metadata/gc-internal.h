@@ -428,11 +428,11 @@ void mono_gc_register_altstack (gpointer stack, gint32 stack_size, gpointer alts
 
 
 #define CANARY_SIZE 0
-#define CANARY_UNDER_STRING ""
-#define CANARY_OVER_STRING  ""
+#define CANARY_STRING ""
 #define CANARY_VALID(addr) TRUE
 #define CANARIFY_SIZE(size)
 #define CANARIFY_ALLOC(addr,size)
+#define CHECK_CANARY(addr)
 #define CHECK_CANARY_FOR_OBJECT(addr)
 #define BYPASS_CANARY(addr) 
 
