@@ -984,13 +984,13 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					last_obj_real_size = sgen_safe_object_get_size_unaligned ((MonoObject*)search_start);
 					last_obj_size = ALIGN_UP(last_obj_real_size);
 					
-					if (!CANARY_VALID (search_start + last_obj_real_size)) {
+					if (!CANARY_VALID ((char*)search_start + last_obj_real_size)) {
 						printf("uncanaried-high?\n");
 						printf("uncanaried? %s %d \n",safe_name(search_start), sgen_safe_object_get_size_unaligned(search_start));
 						printf("uncanaried? %s %d \n",safe_name((char*)search_start + last_obj_real_size), sgen_safe_object_get_size_unaligned( (MonoObject*) ((char*)search_start + last_obj_real_size)));
 						
 					} 
-					CHECK_CANARY (search_start + last_obj_real_size);
+					CHECK_CANARY ((char*)search_start + last_obj_real_size);
 
 					SGEN_LOG (8, "Pinned try match %p (%s), size %zd", last_obj, safe_name (last_obj), last_obj_size);
 					if (addr >= search_start && (char*)addr < (char*)last_obj + last_obj_real_size) {
