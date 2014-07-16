@@ -79,9 +79,16 @@ ves_icall_System_String_InternalSetLength (MonoString *str, gint32 new_length)
 	 * able to handle the changing size (it will skip the 0 bytes). */
 	 
 	if (str->length < ves_icall_System_String_GetLOSLimit()) {
-		CHECK_CANARY ((str->chars + str->length +1))
-		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2) + CANARY_SIZE);
-		memcpy (new_end +1, CANARY_STRING, CANARY_SIZE);
+#ifdef ENABLE_CANARIES
+		char *old_canary = (char*)str + sizeof (MonoString) + 2 * (str->length + 1);
+		char *new_canary = (char*)str + sizeof (MonoString) + 2 * (new_length + 1);
+		CHECK_CANARY (old_canary);
+		memset (old_canary, 0, CANARY_SIZE);
+#endif
+		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2));
+#ifdef ENABLE_CANARIES
+		memcpy (new_canary, CANARY_STRING, CANARY_SIZE);
+#endif
 	}
 	else {
 		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2));
