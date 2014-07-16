@@ -987,7 +987,7 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					if (!CANARY_VALID ((char*)search_start + last_obj_real_size)) {
 						printf("uncanaried-high?\n");
 						printf("uncanaried? %s %d \n",safe_name(search_start), sgen_safe_object_get_size_unaligned(search_start));
-						printf("uncanaried? %s %d \n",safe_name((char*)search_start + last_obj_real_size), sgen_safe_object_get_size_unaligned( (MonoObject*) ((char*)search_start + last_obj_real_size)));
+						printf("uncanaried? %s %d \n",safe_name((char*)search_start + last_obj_size), sgen_safe_object_get_size_unaligned( (MonoObject*) ((char*)search_start + last_obj_size)));
 						
 					} 
 					CHECK_CANARY ((char*)search_start + last_obj_real_size);
