@@ -5441,7 +5441,7 @@ mono_gc_set_string_length (MonoString *str, gint32 new_length)
 	 * able to handle the changing size (it will skip the 0 bytes). */
 	 
 	if (str->length < mono_gc_get_los_limit ()) {
-		CHECK_CANARY ((str->chars + str->length +1))
+		CHECK_CANARY (str->chars + str->length + 1);
 		memset (new_end, 0, (str->length - new_length +1) * sizeof (mono_unichar2) + CANARY_SIZE);
 		memcpy (new_end +1, CANARY_STRING, CANARY_SIZE);
 	}

@@ -404,25 +404,27 @@ void mono_gc_register_altstack (gpointer stack, gint32 stack_size, gpointer alts
 #define CANARY_SIZE 8
 #define CANARY_STRING  "koupepia"
 
-#define CANARIFY_SIZE(size) size = size + CANARY_SIZE
+#define CANARIFY_SIZE(size) do {		\
+		(size) = (size) + CANARY_SIZE;	\
+	} while (0)
 
-#define CANARIFY_ALLOC(addr,size) do {	\
-					memcpy ((char*)addr + size, CANARY_STRING, CANARY_SIZE);	\
-			} while (0);
+#define CANARIFY_ALLOC(addr,size) do {					\
+		memcpy ((char*)(addr) + (size), CANARY_STRING, CANARY_SIZE); \
+	} while (0)
 
-#define CANARY_VALID(addr) (strncmp ((char*) addr, CANARY_STRING, CANARY_SIZE) == 0)
+#define CANARY_VALID(addr) (strncmp ((char*) (addr), CANARY_STRING, CANARY_SIZE) == 0)
 
-#define CHECK_CANARY(addr) do {	\
-					g_assert (CANARY_VALID ((char*)addr));	\
-			} while (0);
+#define CHECK_CANARY(addr) do {					\
+		g_assert (CANARY_VALID ((char*)(addr)));	\
+	} while (0)
 
-#define CHECK_CANARY_FOR_OBJECT(addr) do {	\
-					g_assert (CANARY_VALID ((char*)addr + sgen_safe_object_get_size_unaligned (addr)));	\
-			} while (0);
+#define CHECK_CANARY_FOR_OBJECT(addr) do {				\
+		g_assert (CANARY_VALID ((char*)(addr) + sgen_safe_object_get_size_unaligned ((MonoObject*)(addr)))); \
+	} while (0)
 
-#define BYPASS_CANARY(addr) do {	\
-					addr = ((char*) addr) + CANARY_SIZE;	\
-			} while (0);
+#define BYPASS_CANARY(addr) do {					\
+		(addr) = (void*)(((char*) (addr)) + CANARY_SIZE);	\
+	} while (0)
 	 
 #else /* !ENABLE_CANARIES */
 
