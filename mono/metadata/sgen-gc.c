@@ -916,6 +916,7 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 	void *last_obj = NULL;
 	size_t last_obj_size = 0;
 	size_t last_obj_real_size = 0;
+	gboolean last_obj_pinned = FALSE;
 	void *addr;
 	size_t idx;
 	void **definitely_pinned = start;
@@ -930,7 +931,7 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 		if (addr != last && addr >= start_nursery && addr < end_nursery) {
 			SGEN_LOG (5, "Considering pinning addr %p", addr);
 			/* multiple pointers to the same object */
-			if (addr >= last_obj && (char*)addr < (char*)last_obj + last_obj_real_size) {
+			if (last_obj_pinned && addr >= last_obj && (char*)addr < (char*)last_obj + last_obj_real_size) {
 				start++;
 				continue;
 			}
@@ -948,7 +949,9 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					search_start = start_nursery;
 			}
 			if (search_start < last_obj) {
- 				if (((MonoObject*)last_obj)->synchronisation == GINT_TO_POINTER (-1)) { 
+				if (!last_obj_pinned) {
+					search_start = (char*)last_obj;
+				} else if (((MonoObject*)last_obj)->synchronisation == GINT_TO_POINTER (-1)) { 
  					search_start = (char*)last_obj + last_obj_size;
  				}
  				else { 
@@ -973,7 +976,9 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					search_start = (void*)ALIGN_UP ((mword)search_start + sizeof (gpointer));
 					continue;
 				}
-							
+
+				last_obj_pinned = FALSE;
+
 				if (((MonoObject*)search_start)->synchronisation == GINT_TO_POINTER (-1)) {
 						/* Marks the beginning of a nursery fragment, skip */
 						last_obj = search_start; 
@@ -993,7 +998,9 @@ pin_objects_from_addresses (GCMemSection *section, void **start, void **end, voi
 					CHECK_CANARY ((char*)search_start + last_obj_real_size);
 
 					SGEN_LOG (8, "Pinned try match %p (%s), size %zd", last_obj, safe_name (last_obj), last_obj_size);
-					if (addr >= search_start && (char*)addr < (char*)last_obj + last_obj_real_size) {
+					if (addr >= last_obj && (char*)addr < (char*)last_obj + last_obj_real_size) {
+						last_obj_pinned = TRUE;
+
 						if (scan_func) {
 							scan_func (search_start, queue);
 						} else {
