@@ -292,7 +292,15 @@ mono_gc_alloc_obj_nolock (MonoVTable *vtable, size_t size)
 				do {
 					p = sgen_nursery_alloc (size);
 					if (!p) {
-						sgen_ensure_free_space (size);
+						/*
+						 * We need to use real_size here, not size,
+						 * because size can be larger than
+						 * SGEN_MAX_SMALL_OBJ_SIZE with the
+						 * canaries, in which case no minor
+						 * collection might be performed and we will
+						 * end up in an endless loop.
+						 */
+						sgen_ensure_free_space (real_size);
 						if (degraded_mode)
 							return alloc_degraded (vtable, size, FALSE);
 						else
