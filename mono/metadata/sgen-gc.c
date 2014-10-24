@@ -2843,6 +2843,7 @@ major_finish_collection (const char *reason, size_t old_next_pin_slot, gboolean 
 	/* all the objects in the heap */
 	finish_gray_stack (GENERATION_OLD, &gray_queue);
 	TV_GETTIME (atv);
+	g_print ("finishing gray stack - %d\n", SGEN_TV_ELAPSED_MS (btv, atv));
 	time_major_finish_gray_stack += TV_ELAPSED (btv, atv);
 
 	SGEN_ASSERT (0, sgen_workers_all_done (), "Can't have workers working after joining");
@@ -2934,11 +2935,13 @@ major_finish_collection (const char *reason, size_t old_next_pin_slot, gboolean 
 	}
 
 	TV_GETTIME (atv);
+	g_print ("free big objects - %d\n", SGEN_TV_ELAPSED_MS (btv, atv));
 	time_major_free_bigobjs += TV_ELAPSED (btv, atv);
 
 	sgen_los_sweep ();
 
 	TV_GETTIME (btv);
+	g_print ("sweep LOS - %d\n", SGEN_TV_ELAPSED_MS (atv, btv));
 	time_major_los_sweep += TV_ELAPSED (atv, btv);
 
 	major_collector.sweep ();
@@ -2946,6 +2949,7 @@ major_finish_collection (const char *reason, size_t old_next_pin_slot, gboolean 
 	MONO_GC_SWEEP_END (GENERATION_OLD, !major_collector.sweeps_lazily);
 
 	TV_GETTIME (atv);
+	g_print ("sweep major - %d\n", SGEN_TV_ELAPSED_MS (btv, atv));
 	time_major_sweep += TV_ELAPSED (btv, atv);
 
 	if (heap_dump_file)
@@ -3078,6 +3082,8 @@ major_update_concurrent_collection (void)
 static void
 major_finish_concurrent_collection (void)
 {
+	TV_DECLARE (tva);
+	TV_DECLARE (tvb);
 	TV_DECLARE (total_start);
 	TV_DECLARE (total_end);
 	gboolean late_pinned;
@@ -3095,21 +3101,34 @@ major_finish_concurrent_collection (void)
 	 * marking before the nursery collection is allowed to run, otherwise we might miss
 	 * some remsets.
 	 */
+
+	SGEN_TV_GETTIME (tva);
 	wait_for_workers_to_finish ();
+	SGEN_TV_GETTIME (tvb);
+	g_print ("waiting for workers - %d\n", SGEN_TV_ELAPSED_MS (tva, tvb));
 
 	SGEN_TV_GETTIME (time_major_conc_collection_end);
 	gc_stats.major_gc_time_concurrent += SGEN_TV_ELAPSED (time_major_conc_collection_start, time_major_conc_collection_end);
 
+	SGEN_TV_GETTIME (tva);
 	major_collector.update_cardtable_mod_union ();
 	sgen_los_update_cardtable_mod_union ();
+	SGEN_TV_GETTIME (tvb);
+	g_print ("updating mod union - %d\n", SGEN_TV_ELAPSED_MS (tva, tvb));
 
+	SGEN_TV_GETTIME (tva);
 	late_pinned = collect_nursery (&unpin_queue, TRUE);
+	SGEN_TV_GETTIME (tvb);
+	g_print ("collecting nursery - %d\n", SGEN_TV_ELAPSED_MS (tva, tvb));
 
 	if (mod_union_consistency_check)
 		sgen_check_mod_union_consistency ();
 
+	SGEN_TV_GETTIME (tva);
 	current_collection_generation = GENERATION_OLD;
 	major_finish_collection ("finishing", -1, TRUE, late_pinned);
+	SGEN_TV_GETTIME (tvb);
+	g_print ("finishing collection - %d\n", SGEN_TV_ELAPSED_MS (tva, tvb));
 
 	if (whole_heap_check_before_collection)
 		sgen_check_whole_heap (FALSE);
