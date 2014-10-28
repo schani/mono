@@ -572,7 +572,7 @@ SgenMajorCollector major_collector;
 SgenMinorCollector sgen_minor_collector;
 static GrayQueue gray_queue;
 
-static SgenRemeberedSet remset;
+static SgenRememberedSet remset;
 
 /* The gray queue to use from the main collection thread. */
 #define WORKERS_DISTRIBUTE_GRAY_QUEUE	(&gray_queue)
@@ -2029,19 +2029,10 @@ sgen_concurrent_collection_in_progress (void)
 	return concurrent_collection_in_progress;
 }
 
-typedef struct
-{
-	char *heap_start;
-	char *heap_end;
-} FinishRememberedSetScanJobData;
-
 static void
-job_finish_remembered_set_scan (WorkerData *worker_data, void *job_data_untyped)
+job_remembered_set_scan (WorkerData *worker_data, void *dummy)
 {
-	FinishRememberedSetScanJobData *job_data = job_data_untyped;
-
-	remset.finish_scan_remsets (job_data->heap_start, job_data->heap_end, sgen_workers_get_job_gray_queue (worker_data));
-	sgen_free_internal_dynamic (job_data, sizeof (FinishRememberedSetScanJobData), INTERNAL_MEM_WORKER_JOB_DATA);
+	remset.scan_remsets (sgen_workers_get_job_gray_queue (worker_data));
 }
 
 typedef struct
@@ -2214,7 +2205,6 @@ collect_nursery (SgenGrayQueue *unpin_queue, gboolean finish_up_concurrent_mark)
 	gboolean needs_major;
 	size_t max_garbage_amount;
 	char *nursery_next;
-	FinishRememberedSetScanJobData *frssjd;
 	ScanFromRegisteredRootsJobData *scrrjd_normal, *scrrjd_wbarrier;
 	ScanThreadDataJobData *stdjd;
 	mword fragment_total;
@@ -2311,10 +2301,7 @@ collect_nursery (SgenGrayQueue *unpin_queue, gboolean finish_up_concurrent_mark)
 
 	MONO_GC_CHECKPOINT_3 (GENERATION_NURSERY);
 
-	frssjd = sgen_alloc_internal_dynamic (sizeof (FinishRememberedSetScanJobData), INTERNAL_MEM_WORKER_JOB_DATA, TRUE);
-	frssjd->heap_start = sgen_get_nursery_start ();
-	frssjd->heap_end = nursery_next;
-	sgen_workers_enqueue_job (job_finish_remembered_set_scan, frssjd);
+	sgen_workers_enqueue_job (job_remembered_set_scan, NULL);
 
 	/* we don't have complete write barrier yet, so we scan all the old generation sections */
 	TV_GETTIME (btv);
@@ -5369,7 +5356,7 @@ void mono_gc_set_skip_thread (gboolean skip)
 	UNLOCK_GC;
 }
 
-SgenRemeberedSet*
+SgenRememberedSet*
 sgen_get_remset (void)
 {
 	return &remset;
