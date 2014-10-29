@@ -2194,6 +2194,17 @@ init_gray_queue (void)
 	sgen_gray_object_queue_init (&gray_queue, NULL);
 }
 
+static void
+finish_sweep_if_sweeping (void)
+{
+	if (!major_collector.is_concurrent)
+		return;
+	if (concurrent_collection_in_progress)
+		return;
+
+	major_collector.finish_sweeping ();
+}
+
 /*
  * Perform a nursery collection.
  *
@@ -2220,6 +2231,8 @@ collect_nursery (SgenGrayQueue *unpin_queue, gboolean finish_up_concurrent_mark)
 
 	MONO_GC_BEGIN (GENERATION_NURSERY);
 	binary_protocol_collection_begin (gc_stats.minor_gc_count, GENERATION_NURSERY);
+
+	finish_sweep_if_sweeping ();
 
 	verify_nursery ();
 
@@ -3141,6 +3154,7 @@ sgen_ensure_free_space (size_t size)
 	int generation_to_collect = -1;
 	const char *reason = NULL;
 
+	finish_sweep_if_sweeping ();
 
 	if (size > SGEN_MAX_SMALL_OBJ_SIZE) {
 		if (sgen_need_major_collection (size)) {
