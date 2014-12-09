@@ -1410,4 +1410,9 @@ mono_gc_register_finalizer_callbacks (MonoGCFinalizerCallbacks *callbacks)
 	GC_set_finalizer_notify_proc ((void (*) (GC_PTR))fin_notifier);
 }
 
+gboolean
+mono_gc_object_older_than (MonoObject *object, int generation) {
+	return FALSE;
+}
+
 #endif /* no Boehm GC */

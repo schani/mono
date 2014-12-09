@@ -11,10 +11,10 @@
 #define __MONO_METADATA_GC_INTERNAL_H__
 
 #include <glib.h>
+#include <mono/utils/gc_wrapper.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/threads-types.h>
 #include <mono/metadata/gc-internal-agnostic.h>
-#include <mono/utils/gc_wrapper.h>
 
 #define mono_domain_finalizers_lock(domain) mono_mutex_lock (&(domain)->finalizable_objects_hash_lock);
 #define mono_domain_finalizers_unlock(domain) mono_mutex_unlock (&(domain)->finalizable_objects_hash_lock);
@@ -357,6 +357,8 @@ extern gboolean log_finalizers;
 
 /* If set, do not run finalizers. */
 extern gboolean do_not_finalize;
+
+gboolean mono_gc_object_older_than (MonoObject *object, int generation);
 
 #endif /* __MONO_METADATA_GC_INTERNAL_H__ */
 
