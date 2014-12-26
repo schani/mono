@@ -517,9 +517,9 @@ mono_sgen_los_describe_pointer (char *ptr)
 			los_kind = "los-ptr";
 
 		if (obj->data == ptr) {
-			SGEN_LOG (0, "%s (size %d pin %d)\n", los_kind, (int)size, pinned ? 1 : 0);
+			fprintf (stderr, "%s (size %d pin %d)\n", los_kind, (int)size, pinned ? 1 : 0);
 		} else {
-			SGEN_LOG (0, "%s (interior-ptr offset %td size %d pin %d)",
+			fprintf (stderr, "%s (interior-ptr offset %td size %d pin %d)",
 					  los_kind, ptr - obj->data, (int)size, pinned ? 1 : 0);
 		}
 
