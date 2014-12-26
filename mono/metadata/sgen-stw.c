@@ -126,7 +126,6 @@ restart_threads_until_none_in_managed_allocator (void)
 			if (mono_thread_info_is_live (info) && (!info->stack_start || info->in_critical_region || info->info.inside_critical_region ||
 					is_ip_in_managed_allocator (info->stopped_domain, info->stopped_ip))) {
 				binary_protocol_thread_restart ((gpointer)mono_thread_info_get_tid (info));
-				SGEN_LOG (3, "thread %p resumed.", (void*) (size_t) info->info.native_handle);
 				result = sgen_resume_thread (info);
 				if (result) {
 					++restart_count;
@@ -227,7 +226,6 @@ sgen_stop_world (int generation)
 	update_current_thread_stack (&count);
 
 	sgen_global_stop_count++;
-	SGEN_LOG (3, "stopping world n %d from %p %p", sgen_global_stop_count, mono_thread_info_current (), (gpointer)mono_native_thread_id_get ());
 	TV_GETTIME (stop_world_time);
 
 	if (mono_thread_info_unified_management_enabled ()) {
@@ -240,7 +238,6 @@ sgen_stop_world (int generation)
 		count -= dead;
 	}
 
-	SGEN_LOG (3, "world stopped %d thread(s)", count);
 	mono_profiler_gc_event (MONO_GC_EVENT_POST_STOP_WORLD, generation);
 	MONO_GC_WORLD_STOP_END ();
 	if (binary_protocol_is_enabled ()) {
@@ -305,7 +302,6 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 	time_restart_world += TV_ELAPSED (start_handshake, end_sw);
 	usec = TV_ELAPSED (stop_world_time, end_sw);
 	max_pause_usec = MAX (usec, max_pause_usec);
-	SGEN_LOG (2, "restarted %d thread(s) (pause time: %d usec, max: %d)", count, (int)usec, (int)max_pause_usec);
 	mono_profiler_gc_event (MONO_GC_EVENT_POST_START_WORLD, generation);
 	MONO_GC_WORLD_RESTART_END (generation);
 	binary_protocol_world_restarted (generation, sgen_timestamp ());

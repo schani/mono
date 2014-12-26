@@ -36,8 +36,6 @@ size_t sgen_get_pinned_count (void);
 void sgen_pinning_setup_section (GCMemSection *section);
 void sgen_pinning_trim_queue_to_section (GCMemSection *section);
 
-void sgen_dump_pin_queue (void);
-
 gboolean sgen_find_optimized_pin_queue_area (void *start, void *end, size_t *first_out, size_t *last_out);
 void sgen_find_section_pin_queue_start_end (GCMemSection *section);
 void** sgen_pinning_get_entry (size_t index);
