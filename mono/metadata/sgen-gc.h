@@ -878,7 +878,6 @@ typedef struct {
 
 int sgen_stop_world (int generation);
 int sgen_restart_world (int generation, GGTimingInfo *timing);
-void sgen_init_stw (void);
 
 /* LOS */
 

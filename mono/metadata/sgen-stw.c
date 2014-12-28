@@ -30,7 +30,7 @@
 #include "metadata/sgen-gc.h"
 #include "metadata/sgen-protocol.h"
 #include "metadata/sgen-memory-governor.h"
-#include "metadata/profiler-private.h"
+#include "metadata/sgen-client.h"
 #include "utils/mono-time.h"
 #include "utils/mono-counters.h"
 #include "utils/mono-threads.h"
@@ -194,13 +194,6 @@ release_gc_locks (void)
 	UNLOCK_INTERRUPTION;
 }
 
-static void
-count_cards (long long *major_total, long long *major_marked, long long *los_total, long long *los_marked)
-{
-	sgen_get_major_collector ()->count_cards (major_total, major_marked);
-	sgen_los_count_cards (los_total, los_marked);
-}
-
 static TV_DECLARE (stop_world_time);
 static unsigned long max_pause_usec = 0;
 
@@ -209,14 +202,11 @@ static guint64 time_restart_world;
 
 /* LOCKING: assumes the GC lock is held */
 int
-sgen_stop_world (int generation)
+sgen_client_stop_world (int generation)
 {
 	TV_DECLARE (end_handshake);
 	int count, dead;
-	long long major_total = -1, major_marked = -1, los_total = -1, los_marked = -1;
 
-	mono_profiler_gc_event (MONO_GC_EVENT_PRE_STOP_WORLD, generation);
-	binary_protocol_world_stopping (sgen_timestamp ());
 	acquire_gc_locks ();
 
 	/* We start to scan after locks are taking, this ensures we won't be interrupted. */
@@ -237,11 +227,6 @@ sgen_stop_world (int generation)
 		count -= dead;
 	}
 
-	mono_profiler_gc_event (MONO_GC_EVENT_POST_STOP_WORLD, generation);
-	if (binary_protocol_is_heavy_enabled ())
-		count_cards (&major_total, &major_marked, &los_total, &los_marked);
-	binary_protocol_world_stopped (sgen_timestamp (), major_total, major_marked, los_total, los_marked);
-
 	TV_GETTIME (end_handshake);
 	time_stop_world += TV_ELAPSED (stop_world_time, end_handshake);
 
@@ -254,7 +239,7 @@ sgen_stop_world (int generation)
 
 /* LOCKING: assumes the GC lock is held */
 int
-sgen_restart_world (int generation, GGTimingInfo *timing)
+sgen_client_restart_world (int generation, GGTimingInfo *timing)
 {
 	int count;
 	SgenThreadInfo *info;
@@ -262,17 +247,6 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 	TV_DECLARE (start_handshake);
 	TV_DECLARE (end_bridge);
 	unsigned long usec, bridge_usec;
-	long long major_total = -1, major_marked = -1, los_total = -1, los_marked = -1;
-
-	/* notify the profiler of the leftovers */
-	/* FIXME this is the wrong spot at we can STW for non collection reasons. */
-	if (G_UNLIKELY (mono_profiler_events & MONO_PROFILE_GC_MOVES))
-		sgen_gc_event_moves ();
-	mono_profiler_gc_event (MONO_GC_EVENT_PRE_START_WORLD, generation);
-
-	if (binary_protocol_is_heavy_enabled ())
-		count_cards (&major_total, &major_marked, &los_total, &los_marked);
-	binary_protocol_world_restarting (generation, sgen_timestamp (), major_total, major_marked, los_total, los_marked);
 
 	FOREACH_THREAD (info) {
 		info->stack_start = NULL;
@@ -295,8 +269,6 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 	time_restart_world += TV_ELAPSED (start_handshake, end_sw);
 	usec = TV_ELAPSED (stop_world_time, end_sw);
 	max_pause_usec = MAX (usec, max_pause_usec);
-	mono_profiler_gc_event (MONO_GC_EVENT_POST_START_WORLD, generation);
-	binary_protocol_world_restarted (generation, sgen_timestamp ());
 
 	/*
 	 * We must release the thread info suspend lock after doing
@@ -310,11 +282,6 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 	 */
 	release_gc_locks ();
 
-	sgen_try_free_some_memory = TRUE;
-
-	if (sgen_need_bridge_processing ())
-		sgen_bridge_processing_finish (generation);
-
 	TV_GETTIME (end_bridge);
 	bridge_usec = TV_ELAPSED (end_sw, end_bridge);
 
@@ -322,14 +289,12 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 		timing [0].stw_time = usec;
 		timing [0].bridge_time = bridge_usec;
 	}
-	
-	sgen_memgov_collection_end (generation, timing, timing ? 2 : 0);
 
 	return count;
 }
 
 void
-sgen_init_stw (void)
+mono_sgen_init_stw (void)
 {
 	mono_counters_register ("World stop", MONO_COUNTER_GC | MONO_COUNTER_ULONG | MONO_COUNTER_TIME, &time_stop_world);
 	mono_counters_register ("World restart", MONO_COUNTER_GC | MONO_COUNTER_ULONG | MONO_COUNTER_TIME, &time_restart_world);
