@@ -26,6 +26,7 @@
 #include "metadata/sgen-workers.h"
 #include "metadata/sgen-thread-pool.h"
 #include "utils/mono-counters.h"
+#include "metadata/sgen-client.h"
 
 static int workers_num;
 static WorkerData *workers_data;
@@ -332,7 +333,7 @@ sgen_workers_init (int num_workers)
 
 	sgen_thread_pool_init (num_workers, thread_pool_init_func, marker_idle_func, continue_idle_func, workers_data_ptrs);
 
-	mono_counters_register ("# workers finished", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_workers_num_finished);
+	sgen_client_counter_register_uint64 ("# workers finished", &stat_workers_num_finished);
 }
 
 void

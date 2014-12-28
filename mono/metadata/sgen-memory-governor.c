@@ -31,8 +31,8 @@
 #include "metadata/sgen-memory-governor.h"
 #include "metadata/sgen-thread-pool.h"
 #include "metadata/mono-gc.h"
+#include "metadata/sgen-client.h"
 
-#include "utils/mono-counters.h"
 #include "utils/mono-mmap.h"
 #include "utils/mono-logger-internal.h"
 
@@ -334,7 +334,7 @@ sgen_memgov_try_alloc_space (mword size, int space)
 	}
 
 	SGEN_ATOMIC_ADD_P (allocated_heap, size);
-	mono_runtime_resource_check_limit (MONO_RESOURCE_GC_HEAP, allocated_heap);
+	sgen_client_total_allocated_heap (allocated_heap);
 	return TRUE;
 }
 
@@ -347,8 +347,8 @@ sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, 
 	debug_print_allowance = debug_allowance;
 	major_collection_trigger_size = MIN_MINOR_COLLECTION_ALLOWANCE;
 
-	mono_counters_register ("Memgov alloc", MONO_COUNTER_GC | MONO_COUNTER_WORD | MONO_COUNTER_BYTES | MONO_COUNTER_VARIABLE, &total_alloc);
-	mono_counters_register ("Memgov max alloc", MONO_COUNTER_GC | MONO_COUNTER_WORD | MONO_COUNTER_BYTES | MONO_COUNTER_MONOTONIC, &total_alloc_max);
+	sgen_client_counter_register_byte_count ("Memgov alloc", &total_alloc, FALSE);
+	sgen_client_counter_register_byte_count ("Memgov max alloc", &total_alloc_max, TRUE);
 
 	if (max_heap == 0)
 		return;
