@@ -1948,6 +1948,7 @@ mono_gc_walk_heap (int flags, MonoGCReferences callback, void *data)
 void
 sgen_client_thread_register (SgenThreadInfo* info, void *stack_bottom_fallback)
 {
+	info->client_info.skip = 0;
 	info->client_info.stopped_ip = NULL;
 	info->client_info.stopped_domain = NULL;
 }
@@ -1961,7 +1962,7 @@ is_critical_method (MonoMethod *method)
 static gboolean
 thread_in_critical_region (SgenThreadInfo *info)
 {
-	return info->in_critical_region;
+	return info->client_info.in_critical_region;
 }
 
 static void
@@ -2006,13 +2007,13 @@ sgen_client_scan_thread_data (void *start_nursery, void *end_nursery, gboolean p
 	scan_area_arg_end = end_nursery;
 
 	FOREACH_THREAD (info) {
-		if (info->skip)
+		if (info->client_info.skip)
 			continue;
 		if (info->gc_disabled)
 			continue;
 		if (!mono_thread_info_is_live (info))
 			continue;
-		g_assert (info->suspend_done);
+		g_assert (info->client_info.suspend_done);
 		if (mono_gc_get_gc_callbacks ()->thread_mark_func && !conservative_stack_mark) {
 			SgenUserCopyOrMarkData data = { NULL, queue };
 			mono_gc_get_gc_callbacks ()->thread_mark_func (info->runtime_data, info->stack_start, info->stack_end, precise, &data);

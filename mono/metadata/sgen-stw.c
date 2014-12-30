@@ -118,16 +118,17 @@ restart_threads_until_none_in_managed_allocator (void)
 		   allocator */
 		FOREACH_THREAD_SAFE (info) {
 			gboolean result;
-			if (info->skip || info->gc_disabled || info->suspend_done)
+			if (info->client_info.skip || info->gc_disabled || info->client_info.suspend_done)
 				continue;
-			if (mono_thread_info_is_live (info) && (!info->stack_start || info->in_critical_region || info->client_info.info.inside_critical_region ||
+			if (mono_thread_info_is_live (info) &&
+					(!info->stack_start || info->client_info.in_critical_region || info->client_info.info.inside_critical_region ||
 					is_ip_in_managed_allocator (info->client_info.stopped_domain, info->client_info.stopped_ip))) {
 				binary_protocol_thread_restart ((gpointer)mono_thread_info_get_tid (info));
 				result = sgen_resume_thread (info);
 				if (result) {
 					++restart_count;
 				} else {
-					info->skip = 1;
+					info->client_info.skip = 1;
 				}
 			} else {
 				/* we set the stopped_ip to
@@ -137,7 +138,7 @@ restart_threads_until_none_in_managed_allocator (void)
 				   the others */
 				info->client_info.stopped_ip = NULL;
 				info->client_info.stopped_domain = NULL;
-				info->suspend_done = TRUE;
+				info->client_info.suspend_done = TRUE;
 			}
 		} END_FOREACH_THREAD_SAFE
 		/* if no threads were restarted, we're done */
@@ -158,14 +159,14 @@ restart_threads_until_none_in_managed_allocator (void)
 		/* stop them again */
 		FOREACH_THREAD (info) {
 			gboolean result;
-			if (info->skip || info->client_info.stopped_ip == NULL)
+			if (info->client_info.skip || info->client_info.stopped_ip == NULL)
 				continue;
 			result = sgen_suspend_thread (info);
 
 			if (result) {
 				++restarted_count;
 			} else {
-				info->skip = 1;
+				info->client_info.skip = 1;
 			}
 		} END_FOREACH_THREAD
 		/* some threads might have died */
@@ -321,7 +322,7 @@ sgen_is_thread_in_current_stw (SgenThreadInfo *info)
 	We have detected that this thread is failing/dying, ignore it.
 	FIXME: can't we merge this with thread_is_dying?
 	*/
-	if (info->skip) {
+	if (info->client_info.skip) {
 		return FALSE;
 	}
 
@@ -385,25 +386,25 @@ sgen_unified_suspend_stop_world (void)
 	THREADS_STW_DEBUG ("[GC-STW-BEGIN] *** BEGIN SUSPEND *** \n");
 
 	FOREACH_THREAD_SAFE (info) {
-		info->skip = FALSE;
-		info->suspend_done = FALSE;
+		info->client_info.skip = FALSE;
+		info->client_info.suspend_done = FALSE;
 		if (sgen_is_thread_in_current_stw (info)) {
-			info->skip = !mono_thread_info_begin_suspend (info, FALSE);
+			info->client_info.skip = !mono_thread_info_begin_suspend (info, FALSE);
 			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] SUSPEND thread %p skip %d\n", info, info->skip);
-			if (!info->skip)
+			if (!info->client_info.skip)
 				++count;
 		} else {
 			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] IGNORE thread %p skip %d\n", info, info->skip);
 		}
 	} END_FOREACH_THREAD_SAFE
 
-	mono_thread_info_current ()->suspend_done = TRUE;
+	mono_thread_info_current ()->client_info.suspend_done = TRUE;
 	mono_threads_wait_pending_operations ();
 
 	for (;;) {
 		restart_counter = 0;
 		FOREACH_THREAD_SAFE (info) {
-			if (info->suspend_done || !sgen_is_thread_in_current_stw (info)) {
+			if (info->client_info.suspend_done || !sgen_is_thread_in_current_stw (info)) {
 				THREADS_STW_DEBUG ("[GC-STW-RESTART] IGNORE thread %p not been processed done %d current %d\n", info, info->suspend_done, !sgen_is_thread_in_current_stw (info));
 				continue;
 			}
@@ -416,7 +417,7 @@ sgen_unified_suspend_stop_world (void)
 			*/
 			if (!mono_threads_core_check_suspend_result (info)) {
 				THREADS_STW_DEBUG ("[GC-STW-RESTART] SKIP thread %p failed to finish to suspend\n", info);
-				info->skip = TRUE;
+				info->client_info.skip = TRUE;
 			} else if (mono_thread_info_in_critical_location (info)) {
 				gboolean res;
 				g_assert (mono_thread_info_suspend_count (info) == 1);
@@ -425,11 +426,11 @@ sgen_unified_suspend_stop_world (void)
 				if (res)
 					++restart_counter;
 				else
-					info->skip = TRUE;
+					info->client_info.skip = TRUE;
 			} else {
 				THREADS_STW_DEBUG ("[GC-STW-RESTART] DONE thread %p deemed fully suspended\n", info);
-				g_assert (!info->in_critical_region);
-				info->suspend_done = TRUE;
+				g_assert (!info->client_info.in_critical_region);
+				info->client_info.suspend_done = TRUE;
 			}
 		} END_FOREACH_THREAD_SAFE
 
@@ -454,7 +455,7 @@ sgen_unified_suspend_stop_world (void)
 				gboolean res = mono_thread_info_begin_suspend (info, FALSE);
 				THREADS_STW_DEBUG ("[GC-STW-RESTART] SUSPEND thread %p skip %d\n", info, res);
 				if (!res)
-					info->skip = TRUE;
+					info->client_info.skip = TRUE;
 			}
 		} END_FOREACH_THREAD_SAFE
 
@@ -464,10 +465,10 @@ sgen_unified_suspend_stop_world (void)
 	FOREACH_THREAD_SAFE (info) {
 		if (sgen_is_thread_in_current_stw (info)) {
 			THREADS_STW_DEBUG ("[GC-STW-SUSPEND-END] thread %p is suspended\n", info);
-			g_assert (info->suspend_done);
+			g_assert (info->client_info.suspend_done);
 			update_sgen_info (info);
 		} else {
-			g_assert (!info->suspend_done || info == mono_thread_info_current ());
+			g_assert (!info->client_info.suspend_done || info == mono_thread_info_current ());
 		}
 	} END_FOREACH_THREAD_SAFE
 
