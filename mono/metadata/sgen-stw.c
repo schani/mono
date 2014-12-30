@@ -121,7 +121,7 @@ restart_threads_until_none_in_managed_allocator (void)
 			if (info->skip || info->gc_disabled || info->suspend_done)
 				continue;
 			if (mono_thread_info_is_live (info) && (!info->stack_start || info->in_critical_region || info->client_info.info.inside_critical_region ||
-					is_ip_in_managed_allocator (info->stopped_domain, info->stopped_ip))) {
+					is_ip_in_managed_allocator (info->client_info.stopped_domain, info->client_info.stopped_ip))) {
 				binary_protocol_thread_restart ((gpointer)mono_thread_info_get_tid (info));
 				result = sgen_resume_thread (info);
 				if (result) {
@@ -135,8 +135,8 @@ restart_threads_until_none_in_managed_allocator (void)
 				   we're not restarting so
 				   that we can easily identify
 				   the others */
-				info->stopped_ip = NULL;
-				info->stopped_domain = NULL;
+				info->client_info.stopped_ip = NULL;
+				info->client_info.stopped_domain = NULL;
 				info->suspend_done = TRUE;
 			}
 		} END_FOREACH_THREAD_SAFE
@@ -158,7 +158,7 @@ restart_threads_until_none_in_managed_allocator (void)
 		/* stop them again */
 		FOREACH_THREAD (info) {
 			gboolean result;
-			if (info->skip || info->stopped_ip == NULL)
+			if (info->skip || info->client_info.stopped_ip == NULL)
 				continue;
 			result = sgen_suspend_thread (info);
 
@@ -357,8 +357,8 @@ update_sgen_info (SgenThreadInfo *info)
 	char *stack_start;
 
 	/* Once we remove the old suspend code, we should move sgen to directly access the state in MonoThread */
-	info->stopped_domain = mono_thread_info_tls_get (info, TLS_KEY_DOMAIN);
-	info->stopped_ip = (gpointer) MONO_CONTEXT_GET_IP (&mono_thread_info_get_suspend_state (info)->ctx);
+	info->client_info.stopped_domain = mono_thread_info_tls_get (info, TLS_KEY_DOMAIN);
+	info->client_info.stopped_ip = (gpointer) MONO_CONTEXT_GET_IP (&mono_thread_info_get_suspend_state (info)->ctx);
 	stack_start = (char*)MONO_CONTEXT_GET_SP (&mono_thread_info_get_suspend_state (info)->ctx) - REDZONE_SIZE;
 
 	/* altstack signal handler, sgen can't handle them, mono-threads should have handled this. */
