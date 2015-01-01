@@ -423,9 +423,6 @@ guint32 tlab_size = (1024 * 4);
 
 #define MAX_SMALL_OBJ_SIZE	SGEN_MAX_SMALL_OBJ_SIZE
 
-/* Functions supplied by the runtime to be called by the GC */
-static MonoGCCallbacks gc_callbacks;
-
 #define ALLOC_ALIGN		SGEN_ALLOC_ALIGN
 
 #define ALIGN_UP		SGEN_ALIGN_UP
@@ -2773,18 +2770,6 @@ int
 sgen_get_current_collection_generation (void)
 {
 	return current_collection_generation;
-}
-
-void
-mono_gc_set_gc_callbacks (MonoGCCallbacks *callbacks)
-{
-	gc_callbacks = *callbacks;
-}
-
-MonoGCCallbacks *
-mono_gc_get_gc_callbacks ()
-{
-	return &gc_callbacks;
 }
 
 void*
