@@ -64,8 +64,8 @@ update_current_thread_stack (void *start)
 #endif
 	SgenThreadInfo *info = mono_thread_info_current ();
 	
-	info->stack_start = align_pointer (&stack_guard);
-	g_assert (info->stack_start >= info->stack_start_limit && info->stack_start < info->stack_end);
+	info->client_info.stack_start = align_pointer (&stack_guard);
+	g_assert (info->client_info.stack_start >= info->client_info.stack_start_limit && info->client_info.stack_start < info->client_info.stack_end);
 #ifdef USE_MONO_CTX
 	MONO_CONTEXT_GET_CURRENT (cur_thread_ctx);
 	memcpy (&info->ctx, &cur_thread_ctx, sizeof (MonoContext));
@@ -121,7 +121,7 @@ restart_threads_until_none_in_managed_allocator (void)
 			if (info->client_info.skip || info->client_info.gc_disabled || info->client_info.suspend_done)
 				continue;
 			if (mono_thread_info_is_live (info) &&
-					(!info->stack_start || info->client_info.in_critical_region || info->client_info.info.inside_critical_region ||
+					(!info->client_info.stack_start || info->client_info.in_critical_region || info->client_info.info.inside_critical_region ||
 					is_ip_in_managed_allocator (info->client_info.stopped_domain, info->client_info.stopped_ip))) {
 				binary_protocol_thread_restart ((gpointer)mono_thread_info_get_tid (info));
 				result = sgen_resume_thread (info);
@@ -253,7 +253,7 @@ sgen_client_restart_world (int generation, GGTimingInfo *timing)
 	unsigned long usec, bridge_usec;
 
 	FOREACH_THREAD (info) {
-		info->stack_start = NULL;
+		info->client_info.stack_start = NULL;
 #ifdef USE_MONO_CTX
 		memset (&info->ctx, 0, sizeof (MonoContext));
 #else
@@ -363,10 +363,10 @@ update_sgen_info (SgenThreadInfo *info)
 	stack_start = (char*)MONO_CONTEXT_GET_SP (&mono_thread_info_get_suspend_state (info)->ctx) - REDZONE_SIZE;
 
 	/* altstack signal handler, sgen can't handle them, mono-threads should have handled this. */
-	if (stack_start < (char*)info->stack_start_limit || stack_start >= (char*)info->stack_end)
+	if (stack_start < (char*)info->client_info.stack_start_limit || stack_start >= (char*)info->client_info.stack_end)
 		g_error ("BAD STACK");
 
-	info->stack_start = stack_start;
+	info->client_info.stack_start = stack_start;
 #ifdef USE_MONO_CTX
 	info->ctx = mono_thread_info_get_suspend_state (info)->ctx;
 #else
