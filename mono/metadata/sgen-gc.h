@@ -823,9 +823,15 @@ void sgen_parallel_pin_or_update (void **ptr, void *obj, GCVTable *vt, SgenGrayQ
 void sgen_set_pinned_from_failed_allocation (mword objsize);
 
 void sgen_ensure_free_space (size_t size);
+void sgen_gc_collect (int generation);
 void sgen_perform_collection (size_t requested_size, int generation_to_collect, const char *reason, gboolean wait_to_finish);
 gboolean sgen_has_critical_method (void);
 gboolean sgen_is_critical_method (MonoMethod *method);
+
+int sgen_gc_collection_count (int generation);
+/* FIXME: what exactly does this return? */
+size_t sgen_gc_get_used_size (void);
+size_t sgen_gc_get_total_heap_allocation (void);
 
 /* STW */
 
@@ -942,6 +948,8 @@ sgen_is_object_alive_for_current_gen (char *object)
 
 	return sgen_major_is_object_alive (object);
 }
+
+int sgen_gc_invoke_finalizers (void);
 
 /* TLS Data */
 
