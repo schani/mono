@@ -38,6 +38,8 @@ gboolean sgen_card_table_get_card_data (guint8 *dest, mword address, mword cards
 guint8* sgen_card_table_update_mod_union_from_cards (guint8 *dest, guint8 *start_card, size_t num_cards);
 guint8* sgen_card_table_update_mod_union (guint8 *dest, char *obj, mword obj_size, size_t *out_num_cards);
 
+guint8* sgen_get_card_table_configuration (int *shift_bits, gpointer *mask);
+
 void sgen_card_table_init (SgenRemeberedSet *remset);
 
 /*How many bytes a single card covers*/
@@ -71,7 +73,6 @@ sgen_card_table_get_card_address (mword address)
 extern guint8 *sgen_shadow_cardtable;
 
 #define SGEN_SHADOW_CARDTABLE_END (sgen_shadow_cardtable + CARD_COUNT_IN_BYTES)
-#define SGEN_CARDTABLE_END (sgen_cardtable + CARD_COUNT_IN_BYTES)
 
 static inline guint8*
 sgen_card_table_get_shadow_card_address (mword address)
