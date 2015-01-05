@@ -2800,6 +2800,8 @@ sgen_client_handle_gc_debug (const char *opt)
 		do_not_finalize = TRUE;
 	} else if (!strcmp (opt, "log-finalizers")) {
 		log_finalizers = TRUE;
+	} else if (!strcmp (opt, "no-managed-allocator")) {
+		sgen_set_use_managed_allocator (FALSE);
 	} else if (!sgen_bridge_handle_gc_debug (opt)) {
 		return FALSE;
 	}
@@ -2812,6 +2814,7 @@ sgen_client_print_gc_debug_usage (void)
 	fprintf (stderr, "  xdomain-checks\n");
 	fprintf (stderr, "  do-not-finalize\n");
 	fprintf (stderr, "  log-finalizers\n");
+	fprintf (stderr, "  no-managed-allocator\n");
 	sgen_bridge_print_gc_debug_usage ();
 }
 
@@ -2821,6 +2824,9 @@ mono_gc_base_init (void)
 	mono_counters_init ();
 
 	sgen_gc_init ();
+
+	if (nursery_canaries_enabled ())
+		sgen_set_use_managed_allocator (FALSE);
 }
 
 #endif
