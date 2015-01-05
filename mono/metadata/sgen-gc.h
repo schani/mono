@@ -965,9 +965,6 @@ typedef enum {
 
 void sgen_init_tlab_info (SgenThreadInfo* info);
 void sgen_clear_tlabs (void);
-void sgen_set_use_managed_allocator (gboolean flag);
-gboolean sgen_is_managed_allocator (MonoMethod *method);
-gboolean sgen_has_managed_allocator (void);
 
 void* sgen_alloc_obj (GCVTable *vtable, size_t size);
 void* sgen_alloc_obj_pinned (MonoVTable *vtable, size_t size);
