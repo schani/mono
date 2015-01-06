@@ -1368,6 +1368,7 @@ sgen_collection_is_concurrent (void)
 	default:
 		g_error ("Invalid current generation %d", current_collection_generation);
 	}
+	return FALSE;
 }
 
 gboolean
