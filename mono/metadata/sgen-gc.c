@@ -1094,8 +1094,10 @@ finish_gray_stack (int generation, ScanCopyContext ctx)
 	TV_DECLARE (atv);
 	TV_DECLARE (btv);
 	int done_with_ephemerons, ephemeron_rounds = 0;
+#ifndef SGEN_WITHOUT_MONO
 	char *start_addr = generation == GENERATION_NURSERY ? sgen_get_nursery_start () : NULL;
 	char *end_addr = generation == GENERATION_NURSERY ? sgen_get_nursery_end () : (char*)-1;
+#endif
 	SgenGrayQueue *queue = ctx.queue;
 
 	/*
@@ -1137,7 +1139,9 @@ finish_gray_stack (int generation, ScanCopyContext ctx)
 		++ephemeron_rounds;
 	} while (!done_with_ephemerons);
 
+#ifndef SGEN_WITHOUT_MONO
 	sgen_mark_togglerefs (start_addr, end_addr, ctx);
+#endif
 
 	if (sgen_client_bridge_need_processing ()) {
 		/*Make sure the gray stack is empty before we process bridge objects so we get liveness right*/
@@ -1200,12 +1204,14 @@ finish_gray_stack (int generation, ScanCopyContext ctx)
 
 	sgen_client_clear_unreachable_ephemerons (ctx);
 
+#ifndef SGEN_WITHOUT_MONO
 	/*
 	 * We clear togglerefs only after all possible chances of revival are done. 
 	 * This is semantically more inline with what users expect and it allows for
 	 * user finalizers to correctly interact with TR objects.
 	*/
 	sgen_clear_togglerefs (start_addr, end_addr, ctx);
+#endif
 
 	TV_GETTIME (btv);
 	SGEN_LOG (2, "Finalize queue handling scan for %s generation: %d usecs %d ephemeron rounds", generation_name (generation), TV_ELAPSED (atv, btv), ephemeron_rounds);
@@ -3098,10 +3104,12 @@ sgen_gc_init (void)
 				}
 				continue;
 			}
+#ifndef SGEN_WITHOUT_MONO
 			if (g_str_has_prefix (opt, "toggleref-test")) {
 				sgen_register_test_toggleref_callback ();
 				continue;
 			}
+#endif
 
 #ifdef USER_CONFIG
 			if (g_str_has_prefix (opt, "nursery-size=")) {
