@@ -41,6 +41,8 @@
 static int sgen_unified_suspend_restart_world (void);
 static int sgen_unified_suspend_stop_world (void);
 
+unsigned int sgen_global_stop_count = 0;
+
 inline static void*
 align_pointer (void *ptr)
 {
@@ -391,11 +393,11 @@ sgen_unified_suspend_stop_world (void)
 		info->client_info.suspend_done = FALSE;
 		if (sgen_is_thread_in_current_stw (info)) {
 			info->client_info.skip = !mono_thread_info_begin_suspend (info, FALSE);
-			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] SUSPEND thread %p skip %d\n", info, info->skip);
+			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] SUSPEND thread %p skip %d\n", info, info->client_info.skip);
 			if (!info->client_info.skip)
 				++count;
 		} else {
-			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] IGNORE thread %p skip %d\n", info, info->skip);
+			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] IGNORE thread %p skip %d\n", info, info->client_info.skip);
 		}
 	} END_FOREACH_THREAD_SAFE
 
@@ -406,7 +408,7 @@ sgen_unified_suspend_stop_world (void)
 		restart_counter = 0;
 		FOREACH_THREAD_SAFE (info) {
 			if (info->client_info.suspend_done || !sgen_is_thread_in_current_stw (info)) {
-				THREADS_STW_DEBUG ("[GC-STW-RESTART] IGNORE thread %p not been processed done %d current %d\n", info, info->suspend_done, !sgen_is_thread_in_current_stw (info));
+				THREADS_STW_DEBUG ("[GC-STW-RESTART] IGNORE thread %p not been processed done %d current %d\n", info, info->client_info.suspend_done, !sgen_is_thread_in_current_stw (info));
 				continue;
 			}
 
