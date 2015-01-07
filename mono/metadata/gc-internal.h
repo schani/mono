@@ -104,9 +104,9 @@ gpointer mono_gc_out_of_memory (size_t size);
 void     mono_gc_enable_events (void);
 
 /* disappearing link functionality */
-void        mono_gc_weak_link_add    (void **link_addr, MonoObject *obj, gboolean track);
-void        mono_gc_weak_link_remove (void **link_addr, gboolean track);
-MonoObject *mono_gc_weak_link_get    (void **link_addr);
+void mono_gc_weak_link_register (volatile gpointer *link_addr, MonoObject *obj, gboolean track);
+void mono_gc_weak_link_unregister (volatile gpointer *link_addr, gboolean track);
+void mono_gc_ensure_weak_links_accessible (void);
 
 /*Ephemeron functionality. Sgen only*/
 gboolean    mono_gc_ephemeron_array_add (MonoObject *obj);
