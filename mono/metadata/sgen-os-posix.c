@@ -105,7 +105,7 @@ suspend_thread (SgenThreadInfo *info, void *context)
 
 	/* Notify the JIT */
 	if (mono_gc_get_gc_callbacks ()->thread_suspend_func)
-		mono_gc_get_gc_callbacks ()->thread_suspend_func (info->runtime_data, context, NULL);
+		mono_gc_get_gc_callbacks ()->thread_suspend_func (info->client_info.runtime_data, context, NULL);
 
 	/*
 	Block the restart signal. 
