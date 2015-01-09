@@ -817,8 +817,8 @@ typedef struct {
 	gint64 bridge_time;
 } GGTimingInfo;
 
-int sgen_stop_world (int generation);
-int sgen_restart_world (int generation, GGTimingInfo *timing);
+void sgen_stop_world (int generation);
+void sgen_restart_world (int generation, GGTimingInfo *timing);
 
 gboolean sgen_set_allow_synchronous_major (gboolean flag);
 

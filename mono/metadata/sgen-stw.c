@@ -38,8 +38,8 @@
 #define TV_GETTIME SGEN_TV_GETTIME
 #define TV_ELAPSED SGEN_TV_ELAPSED
 
-static int sgen_unified_suspend_restart_world (void);
-static int sgen_unified_suspend_stop_world (void);
+static void sgen_unified_suspend_restart_world (void);
+static void sgen_unified_suspend_stop_world (void);
 
 unsigned int sgen_global_stop_count = 0;
 
@@ -203,11 +203,10 @@ static guint64 time_stop_world;
 static guint64 time_restart_world;
 
 /* LOCKING: assumes the GC lock is held */
-int
+void
 sgen_client_stop_world (int generation)
 {
 	TV_DECLARE (end_handshake);
-	int count, dead;
 
 	/* notify the profiler of the leftovers */
 	/* FIXME this is the wrong spot at we can STW for non collection reasons. */
@@ -219,19 +218,19 @@ sgen_client_stop_world (int generation)
 	/* We start to scan after locks are taking, this ensures we won't be interrupted. */
 	sgen_process_togglerefs ();
 
-	update_current_thread_stack (&count);
+	update_current_thread_stack (&generation);
 
 	sgen_global_stop_count++;
 	TV_GETTIME (stop_world_time);
 
 	if (mono_thread_info_unified_management_enabled ()) {
-		count = sgen_unified_suspend_stop_world ();
+		sgen_unified_suspend_stop_world ();
 	} else {
+		int count, dead;
 		count = sgen_thread_handshake (TRUE);
 		dead = restart_threads_until_none_in_managed_allocator ();
 		if (count < dead)
 			g_error ("More threads have died (%d) that been initialy suspended %d", dead, count);
-		count -= dead;
 	}
 
 	TV_GETTIME (end_handshake);
@@ -240,15 +239,12 @@ sgen_client_stop_world (int generation)
 	sgen_memgov_collection_start (generation);
 	if (sgen_need_bridge_processing ())
 		sgen_bridge_reset_data ();
-
-	return count;
 }
 
 /* LOCKING: assumes the GC lock is held */
-int
+void
 sgen_client_restart_world (int generation, GGTimingInfo *timing)
 {
-	int count;
 	SgenThreadInfo *info;
 	TV_DECLARE (end_sw);
 	TV_DECLARE (start_handshake);
@@ -267,10 +263,9 @@ sgen_client_restart_world (int generation, GGTimingInfo *timing)
 	TV_GETTIME (start_handshake);
 
 	if (mono_thread_info_unified_management_enabled ())
-		count = sgen_unified_suspend_restart_world ();
+		sgen_unified_suspend_restart_world ();
 	else
-		count = sgen_thread_handshake (FALSE);
-
+		sgen_thread_handshake (FALSE);
 
 	TV_GETTIME (end_sw);
 	time_restart_world += TV_ELAPSED (start_handshake, end_sw);
@@ -296,8 +291,6 @@ sgen_client_restart_world (int generation, GGTimingInfo *timing)
 		timing [0].stw_time = usec;
 		timing [0].bridge_time = bridge_usec;
 	}
-
-	return count;
 }
 
 void
@@ -377,12 +370,11 @@ update_sgen_info (SgenThreadInfo *info)
 #endif
 }
 
-static int
+static void
 sgen_unified_suspend_stop_world (void)
 {
 	int restart_counter;
 	SgenThreadInfo *info;
-	int count = 0;
 	int sleep_duration = -1;
 
 	mono_threads_begin_global_suspend ();
@@ -394,8 +386,6 @@ sgen_unified_suspend_stop_world (void)
 		if (sgen_is_thread_in_current_stw (info)) {
 			info->client_info.skip = !mono_thread_info_begin_suspend (info, FALSE);
 			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] SUSPEND thread %p skip %d\n", info, info->client_info.skip);
-			if (!info->client_info.skip)
-				++count;
 		} else {
 			THREADS_STW_DEBUG ("[GC-STW-BEGIN-SUSPEND] IGNORE thread %p skip %d\n", info, info->client_info.skip);
 		}
@@ -474,22 +464,18 @@ sgen_unified_suspend_stop_world (void)
 			g_assert (!info->client_info.suspend_done || info == mono_thread_info_current ());
 		}
 	} END_FOREACH_THREAD_SAFE
-
-	return count;
 }
 
-static int
+static void
 sgen_unified_suspend_restart_world (void)
 {
 	SgenThreadInfo *info;
-	int count = 0;
 
 	THREADS_STW_DEBUG ("[GC-STW-END] *** BEGIN RESUME ***\n");
 	FOREACH_THREAD_SAFE (info) {
 		if (sgen_is_thread_in_current_stw (info)) {
 			g_assert (mono_thread_info_begin_resume (info));
 			THREADS_STW_DEBUG ("[GC-STW-RESUME-WORLD] RESUME thread %p\n", info);
-			++count;
 		} else {
 			THREADS_STW_DEBUG ("[GC-STW-RESUME-WORLD] IGNORE thread %p\n", info);
 		}
@@ -497,6 +483,5 @@ sgen_unified_suspend_restart_world (void)
 
 	mono_threads_wait_pending_operations ();
 	mono_threads_end_global_suspend ();
-	return count;
 }
 #endif
