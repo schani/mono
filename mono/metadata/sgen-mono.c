@@ -931,7 +931,7 @@ mono_gc_alloc_pinned_obj (MonoVTable *vtable, size_t size)
 void*
 mono_gc_alloc_mature (MonoVTable *vtable)
 {
-	return sgen_alloc_obj_mature (vtable);
+	return sgen_alloc_obj_mature (vtable, vtable->klass->instance_size);
 }
 
 void*
