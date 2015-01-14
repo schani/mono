@@ -1233,7 +1233,7 @@ count_nonpinned_callback (char *obj, size_t size, void *data)
 {
 	GCVTable *vtable = (GCVTable*)LOAD_VTABLE (obj);
 
-	if (sgen_client_vtable_has_references (vtable))
+	if (SGEN_VTABLE_HAS_REFERENCES (vtable))
 		++count_nonpinned_ref;
 	else
 		++count_nonpinned_nonref;
@@ -1244,7 +1244,7 @@ count_pinned_callback (char *obj, size_t size, void *data)
 {
 	GCVTable *vtable = (GCVTable*)LOAD_VTABLE (obj);
 
-	if (sgen_client_vtable_has_references (vtable))
+	if (SGEN_VTABLE_HAS_REFERENCES (vtable))
 		++count_pinned_ref;
 	else
 		++count_pinned_nonref;
