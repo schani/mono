@@ -2726,6 +2726,7 @@ sgen_client_vtable_get_name (GCVTable *gc_vtable)
 void
 sgen_client_init (void)
 {
+	int dummy;
 	MonoThreadInfoCallbacks cb;
 
 	cb.thread_register = sgen_thread_register;
@@ -2772,6 +2773,8 @@ sgen_client_init (void)
 	 * operations.
 	 */
 	sgen_os_init ();
+
+	mono_gc_register_thread (&dummy);
 }
 
 gboolean
