@@ -21,6 +21,7 @@
 
 /*
  * Init whatever needs initing.  This is called relatively early in SGen initialization.
+ * Must initialized the small ID for the current thread.
  */
 void sgen_client_init (void);
 
@@ -167,13 +168,17 @@ void sgen_client_mprotect (void *addr, size_t size, gboolean activate);
 void sgen_client_vfree (void *addr, size_t size);
 
 /*
- * The `stack_bottom_fallback` is the value passed through via `sgen_thread_register()`.
+ * Must set the thread's thread info to `info`.  If the thread's small ID was not already
+ * initialized in `sgen_client_init()` (for the main thread, usually), it must be done here.
+ *
+ * `stack_bottom_fallback` is the value passed through via `sgen_thread_register()`.
  */
 void sgen_client_thread_register (SgenThreadInfo* info, void *stack_bottom_fallback);
+
 void sgen_client_thread_unregister (SgenThreadInfo *p);
 
 /*
- * Called on each worker thread when it starts up.
+ * Called on each worker thread when it starts up.  Must initialize the thread's small ID.
  */
 void sgen_client_thread_register_worker (void);
 
@@ -291,6 +296,13 @@ void sgen_client_counter_register_uint64 (const char *name, guint64 *value);
 void sgen_client_counter_register_byte_count (const char *name, mword *value, gboolean monotonic);
 
 #ifdef SGEN_WITHOUT_MONO
+/*
+ * Get the current thread's thread info.  This will only be called on managed threads.
+ */
 SgenThreadInfo* mono_thread_info_current (void);
+
+/*
+ * Get the current thread's small ID.  This will be called on managed and worker threads.
+ */
 int mono_thread_info_get_small_id (void);
 #endif
