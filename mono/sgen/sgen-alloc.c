@@ -56,6 +56,18 @@ static guint64 stat_objects_alloced = 0;
 static guint64 stat_bytes_alloced = 0;
 static guint64 stat_bytes_alloced_los = 0;
 
+static guint64 stat_regions_bailed = 0;
+static guint64 stat_regions_entered = 0;
+static guint64 stat_regions_exited = 0;
+static guint64 stat_regions_stuck = 0;
+
+static guint64 stat_region_bytes_cleared = 0;
+static guint64 stat_region_bytes_stuck = 0;
+
+static guint64 stat_region_stuck_major_to_minor = 0;
+static guint64 stat_region_stuck_old_tlab_to_new_tlab = 0;
+static guint64 stat_region_stuck_old_region_to_new_region = 0;
+static guint64 stat_region_stuck_old_frame_to_new_frame = 0;
 #endif
 
 /*
@@ -79,6 +91,10 @@ static __thread char *tlab_temp_end;
 static __thread char *tlab_real_end;
 /* Used by the managed allocator/wbarrier */
 static __thread char **tlab_next_addr MONO_ATTR_USED;
+/* Stack of pointers to region starts. */
+static __thread char **tlab_regions_begin, **tlab_regions_end, **tlab_regions_capacity;
+/* Address below which we cannot clear regions, due to escaped pointers. */
+char *tlab_stuck;
 #endif
 
 #ifdef HAVE_KW_THREAD
@@ -86,11 +102,19 @@ static __thread char **tlab_next_addr MONO_ATTR_USED;
 #define TLAB_NEXT	tlab_next
 #define TLAB_TEMP_END	tlab_temp_end
 #define TLAB_REAL_END	tlab_real_end
+#define TLAB_REGIONS_BEGIN	tlab_regions_begin
+#define TLAB_REGIONS_END	tlab_regions_end
+#define TLAB_REGIONS_CAPACITY	tlab_regions_capacity
+#define TLAB_STUCK	tlab_stuck
 #else
 #define TLAB_START	(__thread_info__->tlab_start)
 #define TLAB_NEXT	(__thread_info__->tlab_next)
 #define TLAB_TEMP_END	(__thread_info__->tlab_temp_end)
 #define TLAB_REAL_END	(__thread_info__->tlab_real_end)
+#define TLAB_REGIONS_BEGIN	(__thread_info__->tlab_regions_begin)
+#define TLAB_REGIONS_END	(__thread_info__->tlab_regions_end)
+#define TLAB_REGIONS_CAPACITY	(__thread_info__->tlab_regions_capacity)
+#define TLAB_STUCK	(__thread_info__->tlab_stuck)
 #endif
 
 static GCObject*
@@ -135,6 +159,270 @@ zero_tlab_if_necessary (void *p, size_t size)
 		 */
 		sgen_client_zero_array_fill_header (p, size);
 	}
+}
+
+static gboolean
+sgen_ptr_in_tlab (gpointer ptr)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	return (char *)ptr >= TLAB_START && (char *)ptr < TLAB_REAL_END;
+}
+
+static size_t
+forget_stuck_regions (void)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	char **begin = TLAB_REGIONS_BEGIN;
+	char **end = TLAB_REGIONS_END;
+	char **p = begin;
+	char *stuck = TLAB_STUCK;
+	size_t forgotten;
+#ifdef HEAVY_STATISTICS
+	if (TLAB_STUCK > TLAB_START && TLAB_STUCK <= TLAB_REAL_END)
+		stat_region_bytes_stuck += TLAB_STUCK - TLAB_START;
+#endif
+	while (p != end && *p <= stuck)
+		++p;
+	forgotten = p - begin;
+#if 0
+	g_print ("forgetting %d/%d regions < %p:", p - begin, end - begin, stuck);
+	for (char **q = begin; q < p; ++q)
+		g_print (" %p", *q);
+	g_print (" |");
+	for (char **q = p; q != end; ++q)
+		g_print (" %p", *q);
+	g_print ("\n");
+#endif
+	g_memmove (begin, p, (end - p) * sizeof (*p));
+	end = begin + (end - p);
+#if 0
+	g_print ("remaining:");
+	for (char **q = begin; q < end; ++q)
+		g_print (" %p", *q);
+	g_print ("\n");
+#endif
+	if (begin == end)
+		TLAB_STUCK = NULL;
+	TLAB_REGIONS_END = end;
+	return forgotten;
+}
+
+static gpointer
+pointer_region (gpointer p)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	char **begin;
+	char **end;
+	if ((char *)p < TLAB_START || (char *)p > TLAB_REAL_END)
+		return NULL;
+	begin = TLAB_REGIONS_BEGIN;
+	end = TLAB_REGIONS_END;
+	while (end > begin + 1) {
+		if (end [-1] >= (char *)p && end [-2] < (char *)p)
+			return end [-1];
+		--end;
+	}
+	return NULL;
+}
+
+/* Intercepts writes of 'src' into 'dst'. If they are not in the same
+ * region, then this sticks the region of 'src'. If 'dst' is 'NULL',
+ * the region is always stuck.
+ */
+void
+mono_gc_stick_region_if_necessary (gpointer src, gpointer dst)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	sgen_gc_lock ();
+	/* SGEN_ASSERT (0, dst, "Why are we writing into a null reference?"); */
+	if (!sgen_ptr_in_tlab (src))
+		goto end;
+	if (!TLAB_REGIONS_BEGIN || TLAB_REGIONS_END == TLAB_REGIONS_BEGIN) {
+		SGEN_ASSERT (0, !TLAB_STUCK, "Region info was not cleared correctly");
+		goto end;
+	}
+	if (TLAB_STUCK)
+		SGEN_ASSERT (0, sgen_ptr_in_tlab (TLAB_STUCK), "Region info was not cleared correctly");
+	gboolean major_to_minor = !sgen_ptr_in_nursery (dst);
+	gboolean old_tlab_to_new_tlab = !sgen_ptr_in_tlab (dst);
+	/* FIXME: This is too conservative; it should check whether region_of(dst) < region_of(src). */
+	gboolean old_region_to_new_region = dst < src;
+	/* FIXME: This is WAY too conservative; it should check whether the destination is in a higher stack frame. */
+	gboolean old_frame_to_new_frame = sgen_ptr_on_stack (dst);
+	gboolean always_stick = !dst;
+#ifdef HEAVY_STATISTICS
+	if (major_to_minor)
+		++stat_region_stuck_major_to_minor;
+	else if (old_tlab_to_new_tlab)
+		++stat_region_stuck_old_tlab_to_new_tlab;
+	else if (old_region_to_new_region)
+		++stat_region_stuck_old_region_to_new_region;
+	else if (old_frame_to_new_frame)
+		++stat_region_stuck_old_frame_to_new_frame;
+#endif
+	if (major_to_minor || old_tlab_to_new_tlab || old_region_to_new_region || old_frame_to_new_frame || always_stick) {
+		char *stuck = TLAB_STUCK;
+		char *src_end = (char *)src + ALIGN_UP (sgen_safe_object_get_size (src));
+		SGEN_ASSERT (0, sgen_ptr_in_tlab (src_end - 1), "Stuck object should not extend beyond the end of a TLAB");
+		TLAB_STUCK = MAX (stuck, src_end);
+		SGEN_ASSERT (0, TLAB_STUCK <= TLAB_NEXT, "Why are we sticking an object that is not in the current region?");
+		forget_stuck_regions ();
+		HEAVY_STAT (++stat_regions_stuck);
+#if 0
+		g_print ("sticking at %p\n", TLAB_STUCK);
+#endif
+	}
+end:
+	sgen_gc_unlock ();
+}
+
+G_GNUC_UNUSED static char*
+get_method_from_ip (void *ip)
+{
+	MonoJitInfo *ji;
+	const char *method;
+	char *res;
+	MonoDomain *domain = mono_domain_get ();
+
+	if (!domain)
+		domain = mono_get_root_domain ();
+
+	ji = mono_jit_info_table_find (domain, ip);
+	if (!ji) {
+		return NULL;
+	}
+	method = ji->d.method->name;
+
+	res = g_strdup_printf (" %s + 0x%x (%p %p) [%p - %s]", method, (int)((char*)ip - (char*)ji->code_start), ji->code_start, (char*)ji->code_start + ji->code_size, domain, domain->friendly_name);
+
+	return res;
+}
+
+void
+mono_gc_region_bail (void)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	sgen_gc_lock ();
+	HEAVY_STAT (++stat_regions_bailed);
+	TLAB_REGIONS_END = TLAB_REGIONS_BEGIN;
+	TLAB_STUCK = NULL;
+	sgen_gc_unlock ();
+}
+
+void
+mono_gc_region_enter (void)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	char *next;
+	sgen_gc_lock ();
+	HEAVY_STAT (++stat_regions_entered);
+	next = TLAB_NEXT;
+	if (!next) {
+		SGEN_ASSERT (0, !TLAB_STUCK, "The TLAB info has been reset incorrectly");
+		goto end;
+	}
+#if 0
+	{
+		char *method_name = get_method_from_ip (__builtin_return_address (0));
+		g_print ("region_enter %p (%s)\n", next, method_name);
+		g_free (method_name);
+	}
+#endif
+	SGEN_ASSERT (0, TLAB_REGIONS_END <= TLAB_REGIONS_CAPACITY, "Region stack overflow");
+	/* If full or not allocated then (re)allocate. */
+	if (TLAB_REGIONS_END == TLAB_REGIONS_CAPACITY) {
+		const size_t size = TLAB_REGIONS_END - TLAB_REGIONS_BEGIN;
+		const size_t capacity = TLAB_REGIONS_CAPACITY - TLAB_REGIONS_BEGIN;
+		size_t new_capacity = capacity + capacity / 2;
+		if (!new_capacity)
+			new_capacity = 1024;
+#if 0
+		g_print ("reallocating region stack from %lu to %lu\n", capacity, new_capacity);
+#endif
+		TLAB_REGIONS_BEGIN = g_realloc (TLAB_REGIONS_BEGIN, new_capacity * sizeof (*TLAB_REGIONS_BEGIN));
+		TLAB_REGIONS_END = TLAB_REGIONS_BEGIN + size;
+		TLAB_REGIONS_CAPACITY = TLAB_REGIONS_BEGIN + new_capacity;
+	}
+	/* Save TLAB pointer. */
+	*TLAB_REGIONS_END++ = next;
+end:
+	sgen_gc_unlock ();
+}
+
+void
+mono_gc_region_exit (gpointer ret)
+{
+// #ifndef HAVE_KW_THREAD
+	SgenThreadInfo *__thread_info__ = mono_thread_info_current ();
+// #endif
+	char *region;
+	size_t region_size;
+	char *next;
+	if (ret)
+		mono_gc_stick_region_if_necessary (ret, NULL);
+	sgen_gc_lock ();
+	HEAVY_STAT (++stat_regions_exited);
+#if 1
+	{
+		/* size_t forgotten = */ forget_stuck_regions ();
+		/* SGEN_ASSERT (0, !forgotten, "There should have been no regions to forget"); */
+	}
+#endif
+#if 0
+	{
+		char *method_name = get_method_from_ip (__builtin_return_address (0));
+		g_print ("region_exit %p (%s)\n", TLAB_NEXT, method_name);
+		g_free (method_name);
+	}
+#endif
+	if (TLAB_REGIONS_END == TLAB_REGIONS_BEGIN) {
+		SGEN_ASSERT (0, !TLAB_STUCK, "The TLAB info has been reset incorrectly");
+		goto end;
+	}
+	region = TLAB_REGIONS_END [-1];
+	if (!(sgen_ptr_in_tlab (region) || region == TLAB_REAL_END)) {
+		g_printerr ("Region pointer %p outside current tlab %p-%p\n", region, TLAB_START, TLAB_REAL_END);
+		SGEN_ASSERT (0, sgen_ptr_in_tlab (region) || region == TLAB_REAL_END, "Region pointers should always be in the current TLAB");
+	}
+	if (TLAB_STUCK)
+		SGEN_ASSERT (0, sgen_ptr_in_tlab (TLAB_STUCK), "The TLAB info has been reset incorrectly");
+	SGEN_ASSERT (0, region >= TLAB_STUCK, "Stuck regions should not be accessible");
+	next = TLAB_NEXT;
+	/* A GC has happened, and we're not in a TLAB. */
+	if (!next) {
+		SGEN_ASSERT (0, !TLAB_STUCK, "The TLAB info has been reset incorrectly");
+		goto end;
+	}
+	region_size = next - region;
+	if (region_size) {
+#if 0
+		g_print ("clearing %lu bytes from %p to %p, start %p, next %p, stuck %p\n", region_size, region, region + region_size, TLAB_START, TLAB_NEXT, TLAB_STUCK);
+#endif
+#if 0
+		g_print ("clearing %lu bytes\n", region_size);
+#endif
+		HEAVY_STAT (stat_region_bytes_cleared += region_size);
+		memset (region, 0, region_size);
+	}
+	/* Reset TLAB pointer. */
+	TLAB_NEXT = region;
+	--TLAB_REGIONS_END;
+	if (TLAB_REGIONS_BEGIN == TLAB_REGIONS_END)
+		TLAB_STUCK = NULL;
+end:
+	sgen_gc_unlock ();
 }
 
 /*
@@ -300,12 +588,19 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 				TLAB_NEXT = TLAB_START;
 				TLAB_REAL_END = TLAB_START + alloc_size;
 				TLAB_TEMP_END = TLAB_START + MIN (SGEN_SCAN_START_SIZE, alloc_size);
+				/* size_t capacity = TLAB_REGIONS_CAPACITY - TLAB_REGIONS_BEGIN; */
+				/* g_print ("*** resetting region info\n"); */
+				TLAB_REGIONS_END = TLAB_REGIONS_BEGIN;
+				TLAB_STUCK = NULL;
+				/* memset (TLAB_REGIONS_BEGIN, 0, capacity * sizeof (*TLAB_REGIONS_BEGIN)); */
 
 				zero_tlab_if_necessary (TLAB_START, alloc_size);
 
 				/* Allocate from the TLAB */
 				p = (void*)TLAB_NEXT;
 				TLAB_NEXT += size;
+				if (mono_class_has_finalizer (vtable->klass))
+					TLAB_STUCK = TLAB_NEXT;
 				sgen_set_nursery_scan_start ((char*)p);
 			}
 		} else {
@@ -398,6 +693,8 @@ sgen_try_alloc_obj_nolock (GCVTable vtable, size_t size)
 			TLAB_NEXT = new_next + size;
 			TLAB_REAL_END = new_next + alloc_size;
 			TLAB_TEMP_END = new_next + MIN (SGEN_SCAN_START_SIZE, alloc_size);
+			TLAB_REGIONS_END = TLAB_REGIONS_BEGIN;
+			TLAB_STUCK = mono_class_has_finalizer (vtable->klass) ? TLAB_NEXT : NULL;
 			sgen_set_nursery_scan_start ((char*)p);
 
 			zero_tlab_if_necessary (new_next, alloc_size);
@@ -518,6 +815,9 @@ sgen_init_tlab_info (SgenThreadInfo* info)
 	info->tlab_next_addr = &TLAB_NEXT;
 	info->tlab_temp_end_addr = &TLAB_TEMP_END;
 	info->tlab_real_end_addr = &TLAB_REAL_END;
+	info->tlab_regions_end = NULL;
+	info->tlab_regions_begin = NULL;
+	info->tlab_regions_capacity = NULL;
 
 #ifdef HAVE_KW_THREAD
 	tlab_next_addr = &tlab_next;
@@ -538,6 +838,8 @@ sgen_clear_tlabs (void)
 		*info->tlab_next_addr = NULL;
 		*info->tlab_temp_end_addr = NULL;
 		*info->tlab_real_end_addr = NULL;
+		info->tlab_regions_end = info->tlab_regions_begin;
+		info->tlab_stuck = NULL;
 	} END_FOREACH_THREAD
 }
 
@@ -563,6 +865,17 @@ sgen_init_allocator (void)
 	mono_counters_register ("# objects allocated", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_objects_alloced);
 	mono_counters_register ("bytes allocated", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_bytes_alloced);
 	mono_counters_register ("bytes allocated in LOS", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_bytes_alloced_los);
+
+	mono_counters_register ("regions bailed", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_regions_bailed);
+	mono_counters_register ("regions entered", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_regions_entered);
+	mono_counters_register ("regions exited", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_regions_exited);
+	mono_counters_register ("region bytes cleared", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_region_bytes_cleared);
+	mono_counters_register ("region bytes stuck", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_region_bytes_stuck);
+
+	mono_counters_register ("regions stuck major->minor", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_region_stuck_major_to_minor);
+	mono_counters_register ("regions stuck old->new tlab", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_region_stuck_old_tlab_to_new_tlab);
+	mono_counters_register ("regions stuck old->new region", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_region_stuck_old_region_to_new_region);
+	mono_counters_register ("regions stuck old->new frame", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_region_stuck_old_frame_to_new_frame);
 #endif
 }
 

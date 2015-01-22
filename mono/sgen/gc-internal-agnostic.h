@@ -121,4 +121,9 @@ void mono_gc_memmove_aligned (void *dest, const void *src, size_t size);
 
 FILE *mono_gc_get_logfile (void);
 
+void mono_gc_stick_region_if_necessary (gpointer src, gpointer dst);
+void mono_gc_region_bail (void);
+void mono_gc_region_enter (void);
+void mono_gc_region_exit (gpointer ret);
+
 #endif

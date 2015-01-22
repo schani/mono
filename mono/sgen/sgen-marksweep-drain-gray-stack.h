@@ -262,6 +262,7 @@ DRAIN_GRAY_STACK_FUNCTION_NAME (SgenGrayQueue *queue)
 		GRAY_OBJECT_DEQUEUE (queue, &obj, &desc);
 		if (!obj)
 			return TRUE;
+		SGEN_ASSERT (0, ((MonoObject *)obj)->vtable, "Enqueued object must not have expired");
 
 		SCAN_OBJECT_FUNCTION_NAME (obj, desc, queue);
 	}

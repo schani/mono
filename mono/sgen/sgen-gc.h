@@ -200,6 +200,8 @@ sgen_ptr_in_nursery (void *p)
 	return SGEN_PTR_IN_NURSERY ((p), DEFAULT_NURSERY_BITS, sgen_nursery_start, sgen_nursery_end);
 }
 
+gboolean sgen_ptr_on_stack (void *ptr);
+
 static inline MONO_ALWAYS_INLINE char*
 sgen_get_nursery_start (void)
 {
@@ -404,6 +406,12 @@ struct _SgenThreadInfo {
 	char *tlab_temp_end;
 	char *tlab_real_end;
 #endif
+/* #ifndef HAVE_KW_THREAD */
+	/* Stack of pointers to region starts. */
+	char **tlab_regions_begin, **tlab_regions_end, **tlab_regions_capacity;
+	/* Address below which we cannot clear regions, due to escaped pointers. */
+	char *tlab_stuck;
+/* #endif */
 };
 
 gboolean sgen_is_worker_thread (MonoNativeThreadId thread);

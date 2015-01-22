@@ -1265,6 +1265,20 @@ mono_gc_wbarrier_value_copy_bitmap (gpointer _dest, gpointer _src, int size, uns
 	g_assert_not_reached ();
 }
 
+void
+mono_gc_region_bail (void)
+{
+}
+
+void
+mono_gc_region_enter (void)
+{
+}
+
+void
+mono_gc_region_exit (gpointer ret)
+{
+}
 
 guint8*
 mono_gc_get_card_table (int *shift_bits, gpointer *card_mask)

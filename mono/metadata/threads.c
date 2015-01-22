@@ -1100,6 +1100,14 @@ ves_icall_System_Threading_Thread_Thread_internal (MonoThread *this_obj,
 
 	THREAD_DEBUG (g_message("%s: Trying to start a new thread: this (%p) start (%p)", __func__, this_obj, start));
 
+	/*
+	 * FIXME: Since the ThreadStart delegate reference is stored into unmanaged
+	 * memory, no write barrier is invoked to let the region allocator know that
+	 * it has escaped the scope in which it was allocated. As such, if we don't
+	 * stick the region here, the region allocator will erroneously clear it.
+	 */
+	mono_gc_region_bail ();
+
 	if (!this_obj->internal_thread)
 		ves_icall_System_Threading_Thread_ConstructInternalThread (this_obj);
 	internal = this_obj->internal_thread;

@@ -2595,6 +2595,13 @@ void
 mono_gc_wbarrier_arrayref_copy (gpointer dest_ptr, gpointer src_ptr, int count)
 {
 	HEAVY_STAT (++stat_wbarrier_arrayref_copy);
+#if 1
+	{
+		size_t i;
+		for (i = 0; i < count; ++i)
+			mono_gc_stick_region_if_necessary (((gpointer *)src_ptr) [i], ((gpointer *)dest_ptr) [i]);
+	}
+#endif
 	/*This check can be done without taking a lock since dest_ptr array is pinned*/
 	if (ptr_in_nursery (dest_ptr) || count <= 0) {
 		mono_gc_memmove_aligned (dest_ptr, src_ptr, count * sizeof (gpointer));
@@ -2626,8 +2633,16 @@ mono_gc_wbarrier_generic_nostore (gpointer ptr)
 	sgen_client_wbarrier_generic_nostore_check (ptr);
 
 	obj = *(gpointer*)ptr;
-	if (obj)
+	if (obj) {
 		binary_protocol_wbarrier (ptr, obj, (gpointer)LOAD_VTABLE (obj));
+		/* The object reference that incurred this write barrier by being stored
+		 * might be different from the reference we load from the pointer; this
+		 * may result in excessive region sticking, but should not interfere
+		 * with correctness.
+		 */
+		/* g_print ("%p -> %p\n", obj, ptr); */
+		mono_gc_stick_region_if_necessary (obj, ptr);
+	}
 
 	/*
 	 * We need to record old->old pointer locations for the
@@ -2648,6 +2663,7 @@ mono_gc_wbarrier_generic_store (gpointer ptr, GCObject* value)
 {
 	SGEN_LOG (8, "Wbarrier store at %p to %p (%s)", ptr, value, value ? sgen_client_vtable_get_name (SGEN_LOAD_VTABLE (value)) : "null");
 	SGEN_UPDATE_REFERENCE_ALLOW_NULL (ptr, value);
+	mono_gc_stick_region_if_necessary (value, ptr);
 	if (ptr_in_nursery (value) || concurrent_collection_in_progress)
 		mono_gc_wbarrier_generic_nostore (ptr);
 	sgen_dummy_use (value);
@@ -2665,6 +2681,7 @@ mono_gc_wbarrier_generic_store_atomic (gpointer ptr, GCObject *value)
 
 	InterlockedWritePointer (ptr, value);
 
+	mono_gc_stick_region_if_necessary (value, ptr);
 	if (ptr_in_nursery (value) || concurrent_collection_in_progress)
 		mono_gc_wbarrier_generic_nostore (ptr);
 
@@ -2684,6 +2701,9 @@ sgen_wbarrier_value_copy_bitmap (gpointer _dest, gpointer _src, int size, unsign
 			*dest = *src;
 		++src;
 		++dest;
+#if 1
+		mono_gc_stick_region_if_necessary (src, dest);
+#endif
 		size -= SIZEOF_VOID_P;
 		bitmap >>= 1;
 	}
