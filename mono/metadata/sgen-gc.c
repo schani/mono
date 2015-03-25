@@ -270,7 +270,6 @@ guint64 stat_nursery_copy_object_failed_pinned = 0;
 guint64 stat_nursery_copy_object_failed_to_space = 0;
 
 static guint64 stat_wbarrier_add_to_global_remset = 0;
-static guint64 stat_wbarrier_set_field = 0;
 static guint64 stat_wbarrier_set_arrayref = 0;
 static guint64 stat_wbarrier_arrayref_copy = 0;
 static guint64 stat_wbarrier_generic_store = 0;
@@ -313,9 +312,6 @@ static SGEN_TV_DECLARE (time_major_conc_collection_end);
 static SGEN_TV_DECLARE (last_minor_collection_start_tv);
 static SGEN_TV_DECLARE (last_minor_collection_end_tv);
 
-int gc_debug_level = 0;
-FILE* gc_debug_file;
-
 /*
 void
 mono_gc_flush_info (void)
@@ -328,7 +324,7 @@ mono_gc_flush_info (void)
 #define TV_GETTIME SGEN_TV_GETTIME
 #define TV_ELAPSED SGEN_TV_ELAPSED
 
-SGEN_TV_DECLARE (sgen_init_timestamp);
+static SGEN_TV_DECLARE (sgen_init_timestamp);
 
 NurseryClearPolicy nursery_clear_policy = CLEAR_AT_TLAB_CREATION;
 
@@ -369,7 +365,7 @@ static volatile mword highest_heap_address = 0;
 LOCK_DECLARE (sgen_interruption_mutex);
 
 int current_collection_generation = -1;
-volatile gboolean concurrent_collection_in_progress = FALSE;
+static volatile gboolean concurrent_collection_in_progress = FALSE;
 
 /* objects that are ready to be finalized */
 static SgenPointerQueue fin_ready_queue = SGEN_POINTER_QUEUE_INIT (INTERNAL_MEM_FINALIZE_READY);
@@ -422,7 +418,7 @@ static void pin_from_roots (void *start_nursery, void *end_nursery, GrayQueue *q
 static void finish_gray_stack (int generation, GrayQueue *queue);
 
 
-SgenObjectOperations current_object_ops;
+static SgenObjectOperations current_object_ops;
 SgenMajorCollector major_collector;
 SgenMinorCollector sgen_minor_collector;
 static GrayQueue gray_queue;
@@ -1317,7 +1313,6 @@ init_stats (void)
 
 #ifdef HEAVY_STATISTICS
 	sgen_client_counter_register_uint64 ("WBarrier remember pointer", &stat_wbarrier_add_to_global_remset);
-	sgen_client_counter_register_uint64 ("WBarrier set field", &stat_wbarrier_set_field);
 	sgen_client_counter_register_uint64 ("WBarrier set arrayref", &stat_wbarrier_set_arrayref);
 	sgen_client_counter_register_uint64 ("WBarrier arrayref copy", &stat_wbarrier_arrayref_copy);
 	sgen_client_counter_register_uint64 ("WBarrier generic store called", &stat_wbarrier_generic_store);
@@ -2750,19 +2745,6 @@ sgen_thread_unregister (SgenThreadInfo *p)
  * itself. If a GC interrupts the barrier in the middle, value will be kept alive by
  * the conservative scan, otherwise by the remembered set scan.
  */
-void
-mono_gc_wbarrier_set_field (GCObject *obj, gpointer field_ptr, GCObject* value)
-{
-	HEAVY_STAT (++stat_wbarrier_set_field);
-	if (ptr_in_nursery (field_ptr)) {
-		*(void**)field_ptr = value;
-		return;
-	}
-	if (value)
-		binary_protocol_wbarrier (field_ptr, value, value->vtable);
-
-	remset.wbarrier_set_field (obj, field_ptr, value);
-}
 
 void
 mono_gc_wbarrier_arrayref_copy (gpointer dest_ptr, gpointer src_ptr, int count)
