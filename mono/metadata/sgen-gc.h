@@ -39,11 +39,27 @@ typedef struct _SgenThreadInfo SgenThreadInfo;
 #include "mono/utils/mono-compiler.h"
 #include "mono/utils/atomic.h"
 #include "mono/utils/mono-mutex.h"
+#include "mono/utils/static-analyzer-support.h"
 #include "mono/metadata/sgen-conf.h"
 #include "mono/metadata/sgen-descriptor.h"
 #include "mono/metadata/sgen-gray.h"
 #include "mono/metadata/sgen-hash-table.h"
 #include "mono/metadata/sgen-protocol.h"
+
+#ifdef __CHECKER__
+void            g_mutex_lock                    (GMutex         *mutex) PERMISSION_WORKER_THREAD;
+void            g_mutex_unlock                  (GMutex         *mutex) PERMISSION_WORKER_THREAD;
+void            g_cond_signal                   (GCond          *cond) PERMISSION_WORKER_THREAD;
+void            g_cond_wait                     (GCond          *cond,
+                                                 GMutex         *mutex) PERMISSION_WORKER_THREAD;
+
+int pthread_mutex_lock(pthread_mutex_t *mutex) PERMISSION_LOCKING;
+int pthread_mutex_unlock(pthread_mutex_t *mutex) PERMISSION_LOCKING;
+int pthread_mutex_trylock(pthread_mutex_t *mutex) PERMISSION_LOCKING;
+
+void* pthread_getspecific(pthread_key_t key) PERMISSION_LOCK_FREE;
+int pthread_setspecific(pthread_key_t key, const void *value) PERMISSION_LOCK_FREE;
+#endif
 
 /* The method used to clear the nursery */
 /* Clearing at nursery collections is the safest, but has bad interactions with caches.
@@ -430,8 +446,8 @@ void sgen_dump_occupied (char *start, char *end, char *section_start);
 
 void sgen_register_fixed_internal_mem_type (int type, size_t size);
 
-void* sgen_alloc_internal (int type);
-void sgen_free_internal (void *addr, int type);
+void* sgen_alloc_internal (int type) PERMISSION_LOCK_FREE;
+void sgen_free_internal (void *addr, int type) PERMISSION_LOCK_FREE;
 
 void* sgen_alloc_internal_dynamic (size_t size, int type, gboolean assert_on_failure);
 void sgen_free_internal_dynamic (void *addr, size_t size, int type);
@@ -444,9 +460,9 @@ void sgen_pin_stats_print_class_stats (void);
 void sgen_sort_addresses (void **array, size_t size);
 void sgen_add_to_global_remset (gpointer ptr, gpointer obj);
 
-int sgen_get_current_collection_generation (void);
-gboolean sgen_collection_is_concurrent (void);
-gboolean sgen_concurrent_collection_in_progress (void);
+int sgen_get_current_collection_generation (void) PERMISSION_WORKER_THREAD;
+gboolean sgen_collection_is_concurrent (void) PERMISSION_WORKER_THREAD;
+gboolean sgen_concurrent_collection_in_progress (void) PERMISSION_WORKER_THREAD;
 
 typedef struct {
 	CopyOrMarkObjectFunc copy_or_mark_object;
@@ -673,7 +689,7 @@ void sgen_marksweep_fixed_init (SgenMajorCollector *collector);
 void sgen_marksweep_par_init (SgenMajorCollector *collector);
 void sgen_marksweep_fixed_par_init (SgenMajorCollector *collector);
 void sgen_marksweep_conc_init (SgenMajorCollector *collector);
-SgenMajorCollector* sgen_get_major_collector (void);
+SgenMajorCollector* sgen_get_major_collector (void) PERMISSION_WORKER_THREAD;
 
 
 typedef struct _SgenRemeberedSet {

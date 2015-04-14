@@ -97,7 +97,7 @@ struct _GrayQueueSection {
 
 typedef struct _SgenGrayQueue SgenGrayQueue;
 
-typedef void (*GrayQueueAllocPrepareFunc) (SgenGrayQueue*);
+typedef void PERMISSION_WORKER_THREAD (*GrayQueueAllocPrepareFunc) (SgenGrayQueue*);
 typedef void (*GrayQueueEnqueueCheckFunc) (char*);
 
 struct _SgenGrayQueue {
@@ -148,18 +148,18 @@ void sgen_gray_object_queue_init_with_alloc_prepare (SgenGrayQueue *queue, GrayQ
 		GrayQueueAllocPrepareFunc func, void *data);
 void sgen_gray_object_queue_deinit (SgenGrayQueue *queue);
 void sgen_gray_object_queue_disable_alloc_prepare (SgenGrayQueue *queue);
-void sgen_gray_object_alloc_queue_section (SgenGrayQueue *queue);
-void sgen_gray_object_free_queue_section (GrayQueueSection *section);
+void sgen_gray_object_alloc_queue_section (SgenGrayQueue *queue) PERMISSION_WORKER_THREAD;
+void sgen_gray_object_free_queue_section (GrayQueueSection *section) PERMISSION_LOCKING;
 
 void sgen_section_gray_queue_init (SgenSectionGrayQueue *queue, gboolean locked,
 		GrayQueueEnqueueCheckFunc enqueue_check_func);
 gboolean sgen_section_gray_queue_is_empty (SgenSectionGrayQueue *queue);
-GrayQueueSection* sgen_section_gray_queue_dequeue (SgenSectionGrayQueue *queue);
+GrayQueueSection* sgen_section_gray_queue_dequeue (SgenSectionGrayQueue *queue) PERMISSION_LOCKING;
 void sgen_section_gray_queue_enqueue (SgenSectionGrayQueue *queue, GrayQueueSection *section);
 
 gboolean sgen_gray_object_fill_prefetch (SgenGrayQueue *queue);
 
-static inline gboolean
+static inline gboolean PERMISSION_LOCKING
 sgen_gray_object_queue_is_empty (SgenGrayQueue *queue)
 {
 	return queue->first == NULL;

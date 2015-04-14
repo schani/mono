@@ -46,17 +46,18 @@ static inline void mono_memory_write_barrier (void)
 	MemoryBarrier ();
 }
 #elif defined(USE_GCC_ATOMIC_OPS)
-static inline void mono_memory_barrier (void)
+#include <mono/utils/static-analyzer-support.h>
+static inline void PERMISSION_LOCK_FREE mono_memory_barrier (void)
 {
 	__sync_synchronize ();
 }
 
-static inline void mono_memory_read_barrier (void)
+static inline void PERMISSION_LOCK_FREE mono_memory_read_barrier (void)
 {
 	mono_memory_barrier ();
 }
 
-static inline void mono_memory_write_barrier (void)
+static inline void PERMISSION_LOCK_FREE mono_memory_write_barrier (void)
 {
 	mono_memory_barrier ();
 }

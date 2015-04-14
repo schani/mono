@@ -28,6 +28,7 @@
 
 #include <glib.h>
 
+#include "mono/utils/static-analyzer-support.h"
 #include "lock-free-queue.h"
 
 typedef struct {
@@ -50,8 +51,8 @@ typedef struct {
 void mono_lock_free_allocator_init_size_class (MonoLockFreeAllocSizeClass *sc, unsigned int slot_size, unsigned int block_size);
 void mono_lock_free_allocator_init_allocator (MonoLockFreeAllocator *heap, MonoLockFreeAllocSizeClass *sc);
 
-gpointer mono_lock_free_alloc (MonoLockFreeAllocator *heap);
-void mono_lock_free_free (gpointer ptr, size_t block_size);
+gpointer mono_lock_free_alloc (MonoLockFreeAllocator *heap) PERMISSION_LOCK_FREE;
+void mono_lock_free_free (gpointer ptr, size_t block_size) PERMISSION_LOCK_FREE;
 
 gboolean mono_lock_free_allocator_check_consistency (MonoLockFreeAllocator *heap);
 

@@ -367,7 +367,7 @@ my_g_bit_nth_msf (gsize mask,
 	return -1;
 }
 
-static int
+static int PERMISSION_LOCK_FREE
 find_first_unset (gsize mask, gint nth_bit)
 {
 	do {

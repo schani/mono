@@ -8,6 +8,7 @@
 #else
 #include <mono/utils/mono-publib.h>
 #endif
+#include "mono/utils/static-analyzer-support.h"
 
 /*
  * When embedding, you have to define MONO_ZERO_LEN_ARRAY before including any
@@ -70,11 +71,11 @@ enum {
 
 MONO_API guint32     mono_bitset_alloc_size   (guint32 max_size, guint32 flags);
 
-MONO_API MonoBitSet* mono_bitset_new          (guint32 max_size, guint32 flags);
+MONO_API MonoBitSet* mono_bitset_new          (guint32 max_size, guint32 flags) PERMISSION_LOCKING;
 
 MONO_API MonoBitSet* mono_bitset_mem_new      (gpointer mem, guint32 max_size, guint32 flags);
 
-MONO_API void        mono_bitset_free         (MonoBitSet *set); 
+MONO_API void        mono_bitset_free         (MonoBitSet *set) PERMISSION_LOCKING;
 
 MONO_API void        mono_bitset_set          (MonoBitSet *set, guint32 pos);
 
@@ -102,9 +103,9 @@ MONO_API int         mono_bitset_find_first   (const MonoBitSet *set, gint pos);
 
 MONO_API int         mono_bitset_find_last    (const MonoBitSet *set, gint pos);
 
-MONO_API int         mono_bitset_find_first_unset (const MonoBitSet *set, gint pos);
+MONO_API int         mono_bitset_find_first_unset (const MonoBitSet *set, gint pos) PERMISSION_LOCK_FREE;
 
-MONO_API MonoBitSet* mono_bitset_clone        (const MonoBitSet *set, guint32 new_size);
+MONO_API MonoBitSet* mono_bitset_clone        (const MonoBitSet *set, guint32 new_size) PERMISSION_LOCKING;
 
 MONO_API void        mono_bitset_copyto       (const MonoBitSet *src, MonoBitSet *dest);
 

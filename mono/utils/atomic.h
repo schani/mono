@@ -12,6 +12,7 @@
 #define _WAPI_ATOMIC_H_
 
 #include "config.h"
+#include "mono/utils/static-analyzer-support.h"
 #include <glib.h>
 
 #ifdef ENABLE_EXTENSION_MODULE
@@ -174,6 +175,33 @@ static inline void InterlockedWrite16(volatile gint16 *dst, gint16 val)
 }
 
 /* Prefer GCC atomic ops if the target supports it (see configure.ac). */
+#elif defined(__CHECKER__)
+
+extern gint32 InterlockedCompareExchange(volatile gint32 *dest, gint32 exch, gint32 comp) PERMISSION_LOCK_FREE;
+extern gint64 InterlockedCompareExchange64(volatile gint64 *dest, gint64 exch, gint64 comp);
+extern gpointer InterlockedCompareExchangePointer(volatile gpointer *dest, gpointer exch, gpointer comp) PERMISSION_LOCK_FREE;
+extern gint32 InterlockedAdd(volatile gint32 *dest, gint32 add);
+extern gint64 InterlockedAdd64(volatile gint64 *dest, gint64 add);
+extern gint32 InterlockedIncrement(volatile gint32 *dest) PERMISSION_LOCK_FREE;
+extern gint64 InterlockedIncrement64(volatile gint64 *dest);
+extern gint32 InterlockedDecrement(volatile gint32 *dest);
+extern gint64 InterlockedDecrement64(volatile gint64 *dest);
+extern gint32 InterlockedExchange(volatile gint32 *dest, gint32 exch);
+extern gint64 InterlockedExchange64(volatile gint64 *dest, gint64 exch);
+extern gpointer InterlockedExchangePointer(volatile gpointer *dest, gpointer exch);
+extern gint32 InterlockedExchangeAdd(volatile gint32 *dest, gint32 add);
+extern gint64 InterlockedExchangeAdd64(volatile gint64 *dest, gint64 add);
+extern gint8 InterlockedRead8(volatile gint8 *src);
+extern gint16 InterlockedRead16(volatile gint16 *src);
+extern gint32 InterlockedRead(volatile gint32 *src);
+extern gint64 InterlockedRead64(volatile gint64 *src);
+extern gpointer InterlockedReadPointer(volatile gpointer *src);
+extern void InterlockedWrite8(volatile gint8 *dst, gint8 val);
+extern void InterlockedWrite16(volatile gint16 *dst, gint16 val);
+extern void InterlockedWrite(volatile gint32 *dst, gint32 val);
+extern void InterlockedWrite64(volatile gint64 *dst, gint64 val);
+extern void InterlockedWritePointer(volatile gpointer *dst, gpointer val);
+
 #elif defined(USE_GCC_ATOMIC_OPS)
 
 static inline gint32 InterlockedCompareExchange(volatile gint32 *dest,

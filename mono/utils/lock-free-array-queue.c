@@ -50,7 +50,7 @@ typedef MonoLockFreeArrayChunk Chunk;
 
 #define CHUNK_NTH(arr,chunk,index)	((chunk)->entries + (index) * (arr)->entry_size)
 
-static Chunk*
+static Chunk* PERMISSION_LOCK_FREE
 alloc_chunk (MonoLockFreeArray *arr)
 {
 	int size = GET_PAGESIZE ();
@@ -61,7 +61,7 @@ alloc_chunk (MonoLockFreeArray *arr)
 	return chunk;
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 free_chunk (Chunk *chunk)
 {
 	VFREE (chunk, GET_PAGESIZE ());

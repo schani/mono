@@ -142,13 +142,13 @@ struct _MonoLockFreeAllocDescriptor {
 
 #define NUM_DESC_BATCH	64
 
-static MONO_ALWAYS_INLINE gpointer
+static MONO_ALWAYS_INLINE gpointer PERMISSION_LOCK_FREE
 sb_header_for_addr (gpointer addr, size_t block_size)
 {
 	return (gpointer)(((size_t)addr) & (~(block_size - 1)));
 }
 
-static gpointer
+static gpointer PERMISSION_LOCK_FREE
 alloc_sb (Descriptor *desc)
 {
 	static int pagesize = -1;
@@ -170,7 +170,7 @@ alloc_sb (Descriptor *desc)
 	return (char*)sb_header + LOCK_FREE_ALLOC_SB_HEADER_SIZE;
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 free_sb (gpointer sb, size_t block_size)
 {
 	gpointer sb_header = sb_header_for_addr (sb, block_size);
@@ -182,7 +182,7 @@ free_sb (gpointer sb, size_t block_size)
 #ifndef DESC_AVAIL_DUMMY
 static Descriptor * volatile desc_avail;
 
-static Descriptor*
+static Descriptor* PERMISSION_LOCK_FREE
 desc_alloc (void)
 {
 	MonoThreadHazardPointers *hp = mono_hazard_pointer_get ();
@@ -247,7 +247,7 @@ desc_enqueue_avail (gpointer _desc)
 	} while (InterlockedCompareExchangePointer ((gpointer * volatile)&desc_avail, desc, old_head) != old_head);
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 desc_retire (Descriptor *desc)
 {
 	g_assert (desc->anchor.data.state == STATE_EMPTY);
@@ -270,7 +270,7 @@ desc_alloc (void)
 	return calloc (1, sizeof (Descriptor));
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 desc_retire (Descriptor *desc)
 {
 	free_sb (desc->sb, desc->block_size);
@@ -278,7 +278,7 @@ desc_retire (Descriptor *desc)
 }
 #endif
 
-static Descriptor*
+static Descriptor* PERMISSION_LOCK_FREE
 list_get_partial (MonoLockFreeAllocSizeClass *sc)
 {
 	for (;;) {
@@ -302,14 +302,14 @@ desc_put_partial (gpointer _desc)
 	mono_lock_free_queue_enqueue (&desc->heap->sc->partial, &desc->node);
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 list_put_partial (Descriptor *desc)
 {
 	g_assert (desc->anchor.data.state != STATE_FULL);
 	mono_thread_hazardous_free_or_queue (desc, desc_put_partial, FALSE, TRUE);
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 list_remove_empty_desc (MonoLockFreeAllocSizeClass *sc)
 {
 	int num_non_empty = 0;
@@ -332,19 +332,19 @@ list_remove_empty_desc (MonoLockFreeAllocSizeClass *sc)
 	}
 }
 
-static Descriptor*
+static Descriptor* PERMISSION_LOCK_FREE
 heap_get_partial (MonoLockFreeAllocator *heap)
 {
 	return list_get_partial (heap->sc);
 }
 
-static void
+static void PERMISSION_LOCK_FREE
 heap_put_partial (Descriptor *desc)
 {
 	list_put_partial (desc);
 }
 
-static gboolean
+static gboolean PERMISSION_LOCK_FREE
 set_anchor (Descriptor *desc, Anchor old_anchor, Anchor new_anchor)
 {
 	if (old_anchor.data.state == STATE_EMPTY)
@@ -353,7 +353,7 @@ set_anchor (Descriptor *desc, Anchor old_anchor, Anchor new_anchor)
 	return InterlockedCompareExchange (&desc->anchor.value, new_anchor.value, old_anchor.value) == old_anchor.value;
 }
 
-static gpointer
+static gpointer PERMISSION_LOCK_FREE
 alloc_from_active_or_partial (MonoLockFreeAllocator *heap)
 {
 	Descriptor *desc;
@@ -408,7 +408,7 @@ alloc_from_active_or_partial (MonoLockFreeAllocator *heap)
 	return addr;
 }
 
-static gpointer
+static gpointer PERMISSION_LOCK_FREE
 alloc_from_new_sb (MonoLockFreeAllocator *heap)
 {
 	unsigned int slot_size, block_size, count, i;

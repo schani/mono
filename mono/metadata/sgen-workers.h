@@ -37,7 +37,7 @@ struct _WorkerData {
 	GrayQueueEntry stealable_stack [STEALABLE_STACK_SIZE];
 };
 
-typedef void (*JobFunc) (WorkerData *worker_data, void *job_data);
+typedef void PERMISSION_WORKER_THREAD (*JobFunc) (WorkerData *worker_data, void *job_data);
 
 typedef struct _JobQueueEntry JobQueueEntry;
 struct _JobQueueEntry {

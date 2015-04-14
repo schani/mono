@@ -157,15 +157,15 @@ void sgen_client_pre_collection_checks (void);
  * Return the system's page size.  I'm not sure SGen has been tested on systems with a page
  * size other than 4kb.
  */
-size_t sgen_client_page_size (void);
+size_t sgen_client_page_size (void) PERMISSION_LOCK_FREE;
 
 /*
  * If `activate` is set, give read and write permissions, otherwise no permissions.
  */
-void* sgen_client_valloc (size_t size, gboolean activate);
-void* sgen_client_valloc_aligned (size_t size, size_t alignment, gboolean activate);
-void sgen_client_mprotect (void *addr, size_t size, gboolean activate);
-void sgen_client_vfree (void *addr, size_t size);
+void* sgen_client_valloc (size_t size, gboolean activate) PERMISSION_LOCK_FREE;
+void* sgen_client_valloc_aligned (size_t size, size_t alignment, gboolean activate) PERMISSION_LOCK_FREE;
+void sgen_client_mprotect (void *addr, size_t size, gboolean activate) PERMISSION_LOCK_FREE;
+void sgen_client_vfree (void *addr, size_t size) PERMISSION_LOCK_FREE;
 
 /*
  * Must set the thread's thread info to `info`.  If the thread's small ID was not already
@@ -180,7 +180,7 @@ void sgen_client_thread_unregister (SgenThreadInfo *p);
 /*
  * Called on each worker thread when it starts up.  Must initialize the thread's small ID.
  */
-void sgen_client_thread_register_worker (void);
+void sgen_client_thread_register_worker (void) PERMISSION_WORKER_THREAD;
 
 /*
  * The least this function needs to do is scan all registers and thread stacks.  To do this
@@ -304,5 +304,5 @@ SgenThreadInfo* mono_thread_info_current (void);
 /*
  * Get the current thread's small ID.  This will be called on managed and worker threads.
  */
-int mono_thread_info_get_small_id (void);
+int mono_thread_info_get_small_id (void) PERMISSION_LOCK_FREE;
 #endif

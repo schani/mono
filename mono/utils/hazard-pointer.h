@@ -9,6 +9,7 @@
 #include <glib.h>
 #include <mono/utils/mono-compiler.h>
 #include <mono/utils/mono-membar.h>
+#include "mono/utils/static-analyzer-support.h"
 
 #define HAZARD_POINTER_COUNT 3
 
@@ -16,14 +17,14 @@ typedef struct {
 	gpointer hazard_pointers [HAZARD_POINTER_COUNT];
 } MonoThreadHazardPointers;
 
-typedef void (*MonoHazardousFreeFunc) (gpointer p);
+typedef void PERMISSION_LOCK_FREE (*MonoHazardousFreeFunc) (gpointer p);
 
 void mono_thread_hazardous_free_or_queue (gpointer p, MonoHazardousFreeFunc free_func,
-		gboolean free_func_might_lock, gboolean lock_free_context);
+		gboolean free_func_might_lock, gboolean lock_free_context) PERMISSION_LOCK_FREE;
 void mono_thread_hazardous_try_free_all (void);
 void mono_thread_hazardous_try_free_some (void);
-MonoThreadHazardPointers* mono_hazard_pointer_get (void);
-gpointer get_hazardous_pointer (gpointer volatile *pp, MonoThreadHazardPointers *hp, int hazard_index);
+MonoThreadHazardPointers* mono_hazard_pointer_get (void) PERMISSION_LOCK_FREE;
+gpointer get_hazardous_pointer (gpointer volatile *pp, MonoThreadHazardPointers *hp, int hazard_index) PERMISSION_LOCK_FREE;
 
 #define mono_hazard_pointer_set(hp,i,v)	\
 	do { g_assert ((i) >= 0 && (i) < HAZARD_POINTER_COUNT); \
@@ -41,7 +42,7 @@ gpointer get_hazardous_pointer (gpointer volatile *pp, MonoThreadHazardPointers 
 
 
 void mono_thread_small_id_free (int id);
-int mono_thread_small_id_alloc (void);
+int mono_thread_small_id_alloc (void) PERMISSION_LOCKING;
 
 int mono_hazard_pointer_save_for_signal_handler (void);
 void mono_hazard_pointer_restore_for_signal_handler (int small_id);

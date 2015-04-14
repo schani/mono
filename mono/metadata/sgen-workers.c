@@ -80,7 +80,7 @@ static guint64 stat_workers_stolen_from_self_no_lock;
 static guint64 stat_workers_stolen_from_others;
 static guint64 stat_workers_num_waited;
 
-static gboolean
+static gboolean PERMISSION_WORKER_THREAD
 set_state (State old_state, State new_state)
 {
 	if (old_state.data.state == STATE_NURSERY_COLLECTION)
@@ -90,7 +90,7 @@ set_state (State old_state, State new_state)
 			new_state.value, old_state.value) == old_state.value;
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 assert_not_working (State state)
 {
 	SGEN_ASSERT (0, state.data.state == STATE_NOT_WORKING, "Can only signal enqueue work when in no work state");
@@ -100,7 +100,7 @@ assert_not_working (State state)
 
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 assert_working (State state, gboolean from_worker)
 {
 	SGEN_ASSERT (0, state.data.state == STATE_WORKING, "A worker can't wait without being in working state");
@@ -111,7 +111,7 @@ assert_working (State state, gboolean from_worker)
 	SGEN_ASSERT (0, state.data.num_awake + state.data.num_posted <= workers_num, "There are too many worker threads awake");
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 assert_nursery_collection (State state, gboolean from_worker)
 {
 	SGEN_ASSERT (0, state.data.state == STATE_NURSERY_COLLECTION, "Must be in the nursery collection state");
@@ -126,7 +126,7 @@ assert_nursery_collection (State state, gboolean from_worker)
 	}
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 assert_working_or_nursery_collection (State state)
 {
 	if (state.data.state == STATE_WORKING)
@@ -135,7 +135,7 @@ assert_working_or_nursery_collection (State state)
 		assert_nursery_collection (state, TRUE);
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 workers_signal_enqueue_work (int num_wake_up, gboolean from_nursery_collection)
 {
 	State old_state = workers_state;
@@ -160,7 +160,8 @@ workers_signal_enqueue_work (int num_wake_up, gboolean from_nursery_collection)
 		SGEN_SEMAPHORE_POST (&workers_waiting_sem);
 }
 
-static void
+/* FIXME: This should not be called from the worker thread. */
+static void PERMISSION_WORKER_THREAD
 workers_signal_enqueue_work_if_necessary (int num_wake_up)
 {
 	if (workers_state.data.state == STATE_NOT_WORKING)
@@ -174,7 +175,7 @@ sgen_workers_ensure_awake (void)
 	workers_signal_enqueue_work_if_necessary (workers_num);
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 workers_wait (void)
 {
 	State old_state, new_state;
@@ -218,7 +219,7 @@ workers_wait (void)
 	} while (!set_state (old_state, new_state));
 }
 
-static gboolean
+static gboolean PERMISSION_WORKER_THREAD
 collection_needs_workers (void)
 {
 	return sgen_collection_is_concurrent ();
@@ -300,7 +301,7 @@ sgen_workers_signal_finish_nursery_collection (void)
 	workers_signal_enqueue_work (workers_num, TRUE);
 }
 
-static gboolean
+static gboolean PERMISSION_WORKER_THREAD
 workers_dequeue_and_do_job (WorkerData *data)
 {
 	JobQueueEntry *entry;
@@ -337,7 +338,7 @@ workers_dequeue_and_do_job (WorkerData *data)
 	return TRUE;
 }
 
-static gboolean
+static gboolean PERMISSION_WORKER_THREAD
 workers_steal (WorkerData *data, WorkerData *victim_data, gboolean lock)
 {
 	SgenGrayQueue *queue = &data->private_gray_queue;
@@ -392,7 +393,7 @@ workers_steal (WorkerData *data, WorkerData *victim_data, gboolean lock)
 	return num != 0;
 }
 
-static gboolean
+static gboolean PERMISSION_WORKER_THREAD
 workers_get_work (WorkerData *data)
 {
 	SgenMajorCollector *major;
@@ -430,7 +431,7 @@ workers_get_work (WorkerData *data)
 	return FALSE;
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 workers_gray_queue_share_redirect (SgenGrayQueue *queue)
 {
 	GrayQueueSection *section;
@@ -481,7 +482,7 @@ concurrent_enqueue_check (char *obj)
 	g_assert (SGEN_LOAD_VTABLE (obj));
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 init_private_gray_queue (WorkerData *data)
 {
 	sgen_gray_object_queue_init_with_alloc_prepare (&data->private_gray_queue,
@@ -489,7 +490,7 @@ init_private_gray_queue (WorkerData *data)
 			workers_gray_queue_share_redirect, data);
 }
 
-static mono_native_thread_return_t
+static mono_native_thread_return_t PERMISSION_WORKER_THREAD
 workers_thread_func (void *data_untyped)
 {
 	WorkerData *data = data_untyped;

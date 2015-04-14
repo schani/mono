@@ -237,7 +237,7 @@ sgen_gray_object_queue_init (SgenGrayQueue *queue, GrayQueueEnqueueCheckFunc enq
 	sgen_gray_object_queue_trim_free_list (queue);
 }
 
-static void
+static void PERMISSION_WORKER_THREAD
 invalid_prepare_func (SgenGrayQueue *queue)
 {
 	g_assert_not_reached ();
@@ -286,7 +286,7 @@ sgen_gray_object_queue_disable_alloc_prepare (SgenGrayQueue *queue)
 	queue->alloc_prepare_data = NULL;
 }
 
-static void
+static void PERMISSION_LOCKING
 lock_section_queue (SgenSectionGrayQueue *queue)
 {
 	if (!queue->locked)
@@ -295,7 +295,7 @@ lock_section_queue (SgenSectionGrayQueue *queue)
 	mono_mutex_lock (&queue->lock);
 }
 
-static void
+static void PERMISSION_LOCKING
 unlock_section_queue (SgenSectionGrayQueue *queue)
 {
 	if (!queue->locked)

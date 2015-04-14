@@ -30,6 +30,8 @@
 
 #include <glib.h>
 
+#include "mono/utils/static-analyzer-support.h"
+
 //#define QUEUE_DEBUG	1
 
 typedef struct _MonoLockFreeQueueNode MonoLockFreeQueueNode;
@@ -57,11 +59,11 @@ typedef struct {
 
 void mono_lock_free_queue_init (MonoLockFreeQueue *q);
 
-void mono_lock_free_queue_node_init (MonoLockFreeQueueNode *node, gboolean to_be_freed);
+void mono_lock_free_queue_node_init (MonoLockFreeQueueNode *node, gboolean to_be_freed) PERMISSION_LOCK_FREE;
 void mono_lock_free_queue_node_free (MonoLockFreeQueueNode *node);
 
-void mono_lock_free_queue_enqueue (MonoLockFreeQueue *q, MonoLockFreeQueueNode *node);
+void mono_lock_free_queue_enqueue (MonoLockFreeQueue *q, MonoLockFreeQueueNode *node) PERMISSION_LOCK_FREE;
 
-MonoLockFreeQueueNode* mono_lock_free_queue_dequeue (MonoLockFreeQueue *q);
+MonoLockFreeQueueNode* mono_lock_free_queue_dequeue (MonoLockFreeQueue *q) PERMISSION_LOCK_FREE;
 
 #endif

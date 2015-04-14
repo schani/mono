@@ -158,7 +158,7 @@ mono_thread_small_id_free (int id)
 	mono_mutex_unlock (&small_id_mutex);
 }
 
-static gboolean
+static gboolean PERMISSION_LOCK_FREE
 is_pointer_hazardous (gpointer p)
 {
 	int i, j;
@@ -292,7 +292,7 @@ mono_hazard_pointer_restore_for_signal_handler (int small_id)
 	overflow_busy [small_id] = 0;
 }
 
-static gboolean
+static gboolean PERMISSION_LOCK_FREE
 try_free_delayed_free_item (gboolean lock_free_context)
 {
 	DelayedFreeItem item;

@@ -164,7 +164,7 @@ free_dummy (gpointer _dummy)
 	dummy->in_use = 0;
 }
 
-static MonoLockFreeQueueDummy*
+static MonoLockFreeQueueDummy* PERMISSION_LOCK_FREE
 get_dummy (MonoLockFreeQueue *q)
 {
 	int i;
@@ -180,13 +180,13 @@ get_dummy (MonoLockFreeQueue *q)
 	return NULL;
 }
 
-static gboolean
+static gboolean PERMISSION_LOCK_FREE
 is_dummy (MonoLockFreeQueue *q, MonoLockFreeQueueNode *n)
 {
 	return n >= &q->dummies [0].node && n < &q->dummies [MONO_LOCK_FREE_QUEUE_NUM_DUMMIES].node;
 }
 
-static gboolean
+static gboolean PERMISSION_LOCK_FREE
 try_reenqueue_dummy (MonoLockFreeQueue *q)
 {
 	MonoLockFreeQueueDummy *dummy;
