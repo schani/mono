@@ -43,6 +43,7 @@
 #include <mono/utils/mono-counters.h>
 #include <mono/utils/mono-error-internals.h>
 #include <mono/utils/mono-memory-model.h>
+#include <mono/utils/mono-threads.h>
 #include "cominterop.h"
 
 static void

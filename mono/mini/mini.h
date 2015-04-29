@@ -1042,6 +1042,13 @@ typedef struct {
 	int first_filter_idx, filter_idx;
 } ResumeState;
 
+typedef enum {
+	MONO_PERF_STATE_COMPILE,
+	MONO_PERF_STATE_EXEC,
+	MONO_PERF_STATE_NUM
+} MonoThreadPerfState;
+#define MONO_PERF_STATE_UNKNOWN MONO_PERF_STATE_NUM
+
 typedef struct {
 	gpointer          end_of_stack;
 	guint32           stack_size;
@@ -1084,6 +1091,13 @@ typedef struct {
 	 * Stores if we need to run a chained exception in Windows.
 	 */
 	gboolean mono_win_chained_exception_needs_run;
+
+	/*
+	 * Thread-local state and time tracking.
+	 */
+	gint64 perf_segment_start;
+	gint64 perf_counters[MONO_PERF_STATE_NUM];
+	MonoThreadPerfState state;
 } MonoJitTlsData;
 
 /*
@@ -3027,5 +3041,9 @@ gboolean MONO_SIG_HANDLER_SIGNATURE (mono_chain_signal);
 #else
 #define MONO_IS_ILP32 0
 #endif
+
+void mono_change_perf_state (MonoThreadPerfState state);
+void mono_change_perf_state_check (MonoThreadPerfState old_state, MonoThreadPerfState new_state);
+void mono_update_perf_counter (MonoJitTlsData *jit_tls);
 
 #endif /* __MONO_MINI_H__ */
