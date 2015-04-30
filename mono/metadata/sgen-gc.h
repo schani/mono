@@ -773,8 +773,6 @@ void sgen_collect_bridge_objects (int generation, ScanCopyContext ctx);
 
 typedef gboolean (*SgenObjectPredicateFunc) (GCObject *obj, void *user_data);
 
-void sgen_null_links_if (SgenObjectPredicateFunc predicate, void *data, int generation, gboolean track);
-
 gboolean sgen_gc_is_object_ready_for_finalization (void *object);
 void sgen_gc_lock (void);
 void sgen_gc_unlock (void);
@@ -934,6 +932,17 @@ sgen_is_object_alive_for_current_gen (char *object)
 
 int sgen_gc_invoke_finalizers (void);
 
+/* GC handles */
+
+void sgen_init_gchandles (void);
+
+void sgen_null_links_if (SgenObjectPredicateFunc predicate, void *data, int generation, gboolean track);
+
+void sgen_gchandle_set_target (guint32 gchandle, GCObject *obj);
+void sgen_mark_normal_gc_handles (void *addr, SgenUserMarkFunc mark_func, void *gc_data);
+gpointer sgen_gchandle_get_metadata (guint32 gchandle);
+void sgen_gchandle_iterate (GCHandleType handle_type, int max_generation, gpointer callback(gpointer, GCHandleType, int, gpointer), gpointer user);
+
 /* Other globals */
 
 extern GCMemSection *nursery_section;
@@ -1040,11 +1049,6 @@ gboolean nursery_canaries_enabled (void);
 					canary_copy[CANARY_SIZE] = 0;	\
 					g_error ("CORRUPT CANARY:\naddr->%p\ntype->%s\nexcepted->'%s'\nfound->'%s'\n", (char*) addr, sgen_client_vtable_get_name (SGEN_LOAD_VTABLE ((addr))), CANARY_STRING, canary_copy);	\
 				} }
-
-void sgen_gchandle_set_target (guint32 gchandle, GCObject *obj);
-void sgen_mark_normal_gc_handles (void *addr, SgenUserMarkFunc mark_func, void *gc_data);
-gpointer sgen_gchandle_get_metadata (guint32 gchandle);
-void sgen_gchandle_iterate (GCHandleType handle_type, int max_generation, gpointer callback(gpointer, GCHandleType, int, gpointer), gpointer user);
 
 #endif /* HAVE_SGEN_GC */
 

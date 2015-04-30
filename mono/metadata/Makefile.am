@@ -291,6 +291,7 @@ sgen_sources = \
 	sgen-memory-governor.h	\
 	sgen-stw.c				\
 	sgen-fin-weak-hash.c	\
+	sgen-gchandles.c	\
 	sgen-layout-stats.c	\
 	sgen-layout-stats.h	\
 	sgen-qsort.c	\
