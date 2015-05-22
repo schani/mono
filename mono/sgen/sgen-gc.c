@@ -2934,7 +2934,7 @@ sgen_gc_init (void)
 	size_t soft_limit = 0;
 	int result;
 	gboolean debug_print_allowance = FALSE;
-	double allowance_ratio = 0, save_target = 0;
+	double allowance_ratio = 0;
 	gboolean cement_enabled = TRUE;
 
 	do {
@@ -3090,15 +3090,6 @@ sgen_gc_init (void)
 				continue;
 			}
 #endif
-			if (g_str_has_prefix (opt, "save-target-ratio=")) {
-				double val;
-				opt = strchr (opt, '=') + 1;
-				if (parse_double_in_interval (MONO_GC_PARAMS_NAME, "save-target-ratio", opt,
-						SGEN_MIN_SAVE_TARGET_RATIO, SGEN_MAX_SAVE_TARGET_RATIO, &val)) {
-					save_target = val;
-				}
-				continue;
-			}
 			if (g_str_has_prefix (opt, "default-allowance-ratio=")) {
 				double val;
 				opt = strchr (opt, '=') + 1;
@@ -3165,7 +3156,6 @@ sgen_gc_init (void)
 				sgen_minor_collector.print_gc_param_usage ();
 			sgen_client_print_gc_params_usage ();
 			fprintf (stderr, " Experimental options:\n");
-			fprintf (stderr, "  save-target-ratio=R (where R must be between %.2f - %.2f).\n", SGEN_MIN_SAVE_TARGET_RATIO, SGEN_MAX_SAVE_TARGET_RATIO);
 			fprintf (stderr, "  default-allowance-ratio=R (where R must be between %.2f - %.2f).\n", SGEN_MIN_ALLOWANCE_NURSERY_SIZE_RATIO, SGEN_MAX_ALLOWANCE_NURSERY_SIZE_RATIO);
 			fprintf (stderr, "\n");
 
@@ -3331,7 +3321,7 @@ sgen_gc_init (void)
 	if (major_collector.needs_thread_pool)
 		sgen_workers_init (1);
 
-	sgen_memgov_init (max_heap, soft_limit, debug_print_allowance, allowance_ratio, save_target);
+	sgen_memgov_init (max_heap, soft_limit, debug_print_allowance, allowance_ratio);
 
 	memset (&remset, 0, sizeof (remset));
 

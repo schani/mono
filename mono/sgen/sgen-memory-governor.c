@@ -41,7 +41,6 @@ static mword max_heap_size = ((mword)0)- ((mword)1);
 static mword soft_heap_limit = ((mword)0) - ((mword)1);
 
 static double default_allowance_nursery_size_ratio = SGEN_DEFAULT_ALLOWANCE_NURSERY_SIZE_RATIO;
-static double save_target_ratio = SGEN_DEFAULT_SAVE_TARGET_RATIO;
 
 /**/
 static mword allocated_heap;
@@ -291,7 +290,7 @@ sgen_memgov_try_alloc_space (mword size, int space)
 }
 
 void
-sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, double allowance_ratio, double save_target)
+sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, double allowance_ratio)
 {
 	if (soft_limit)
 		soft_heap_limit = soft_limit;
@@ -318,9 +317,6 @@ sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, 
 
 	if (allowance_ratio)
 		default_allowance_nursery_size_ratio = allowance_ratio;
-
-	if (save_target)
-		save_target_ratio = save_target;
 }
 
 #endif
