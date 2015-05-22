@@ -53,7 +53,8 @@ static gboolean debug_print_allowance = FALSE;
 
 
 /* use this to tune when to do a major/minor collection */
-static mword major_collection_trigger_size;
+static mword major_collection_start_trigger_size;
+static mword major_collection_finish_trigger_size;
 
 static gboolean need_calculate_minor_collection_allowance;
 
@@ -68,7 +69,9 @@ static mword sgen_memgov_available_free_space (void);
 static void
 sgen_memgov_calculate_minor_collection_allowance (void)
 {
-	size_t new_major, new_heap_size, allowance_target, allowance;
+	size_t new_major, new_heap_size;
+	size_t start_allowance_target, start_allowance;
+	size_t finish_allowance_target, finish_allowance;
 
 	if (!need_calculate_minor_collection_allowance)
 		return;
@@ -78,45 +81,68 @@ sgen_memgov_calculate_minor_collection_allowance (void)
 	new_major = major_collector.get_bytes_survived_last_sweep ();
 	new_heap_size = new_major + last_collection_los_memory_usage;
 
-	/*
-	 * We allow the heap to grow by one third its current size before we start the next
-	 * major collection.
-	 */
-	allowance_target = new_heap_size / 3;
+	if (major_collector.is_concurrent) {
+		start_allowance_target = new_heap_size / 4;
+		finish_allowance_target = new_heap_size / 2;
+	} else {
+		/*
+		 * We allow the heap to grow by one third its current size before we start
+		 * the next major collection.
+		 */
+		start_allowance_target = new_heap_size / 3;
+	}
 
-	allowance = MAX (allowance_target, MIN_MINOR_COLLECTION_ALLOWANCE);
+	start_allowance = MAX (start_allowance_target, MIN_MINOR_COLLECTION_ALLOWANCE);
 
-	if (new_heap_size + allowance > soft_heap_limit) {
+	if (major_collector.is_concurrent)
+		finish_allowance = MAX (finish_allowance_target, start_allowance + MIN_MINOR_COLLECTION_ALLOWANCE);
+	else
+		finish_allowance = start_allowance;
+
+	if (new_heap_size + finish_allowance > soft_heap_limit) {
 		if (new_heap_size > soft_heap_limit)
-			allowance = MIN_MINOR_COLLECTION_ALLOWANCE;
+			finish_allowance = MIN_MINOR_COLLECTION_ALLOWANCE;
 		else
-			allowance = MAX (soft_heap_limit - new_heap_size, MIN_MINOR_COLLECTION_ALLOWANCE);
+			finish_allowance = MAX (soft_heap_limit - new_heap_size, MIN_MINOR_COLLECTION_ALLOWANCE);
+
+		if (major_collector.is_concurrent)
+			start_allowance = finish_allowance / 2;
+		else
+			start_allowance = finish_allowance;
 	}
 
 	/* FIXME: Why is this here? */
 	if (major_collector.free_swept_blocks)
 		major_collector.free_swept_blocks (allowance);
 
-	major_collection_trigger_size = new_heap_size + allowance;
+	major_collection_start_trigger_size = new_heap_size + start_allowance;
+	major_collection_finish_trigger_size = new_heap_size + finish_allowance;
+
+	SGEN_ASSERT (0, major_collection_start_trigger_size <= major_collection_finish_trigger_size,
+			"How can we finish before we start?");
 
 	need_calculate_minor_collection_allowance = FALSE;
 
 	if (debug_print_allowance) {
 		SGEN_LOG (0, "Surviving sweep: %ld bytes (%ld major, %ld LOS)", (long)new_heap_size, (long)new_major, (long)last_collection_los_memory_usage);
-		SGEN_LOG (0, "Allowance: %ld bytes", (long)allowance);
+		SGEN_LOG (0, "Allowance: %ld bytes", (long)finish_allowance);
 		SGEN_LOG (0, "Trigger size: %ld bytes", (long)major_collection_trigger_size);
 	}
 }
 
-gboolean
-sgen_need_major_collection (mword space_needed)
+static gboolean
+heap_is_beyond_bounds (mword space_needed, gboolean for_start)
 {
-	size_t heap_size;
+	size_t heap_size, trigger_size;
 
-	if (sgen_concurrent_collection_in_progress ())
-		return FALSE;
-
-	/* FIXME: This is a cop-out.  We should have some way of figuring this out. */
+	/*
+	 * FIXME: This is a cop-out.  We should have some way of figuring this out.
+	 *
+	 * In practice this should only matter as far as the LOS is concerned.  Minor
+	 * collections trigger a sweep finish anyway, and the LOS is swept eagerly.  We
+	 * won't know how large the major heap is, but if the LOS grows out of reasonable
+	 * bounds we can still trigger.
+	 */
 	if (!major_collector.have_swept ())
 		return FALSE;
 
@@ -127,7 +153,29 @@ sgen_need_major_collection (mword space_needed)
 
 	heap_size = major_collector.get_num_major_sections () * major_collector.section_size + los_memory_usage;
 
-	return heap_size > major_collection_trigger_size;
+	if (for_start)
+		trigger_size = major_collection_start_trigger_size;
+	else
+		trigger_size = major_collection_finish_trigger_size;
+
+	return heap_size > trigger_size;
+}
+
+gboolean
+sgen_should_start_major_collection (mword space_needed)
+{
+	if (sgen_concurrent_collection_in_progress ())
+		return FALSE;
+
+	return heap_is_beyond_bounds (space_needed, TRUE);
+}
+
+gboolean
+sgen_should_finish_major_collection (mword space_needed)
+{
+	SGEN_ASSERT (0, sgen_concurrent_collection_in_progress (), "How can we finish a major collection if it's not in progress?");
+
+	return heap_is_beyond_bounds (space_needed, FALSE);
 }
 
 void

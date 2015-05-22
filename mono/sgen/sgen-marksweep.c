@@ -852,6 +852,12 @@ major_finish_sweep_checking (void)
 
  wait:
 	job = sweep_job;
+	/*
+	 * This is not a race condition.  `sgen_thread_pool_job_wait()` works even if the
+	 * job has already finished and its memory freed.  The memory can also not have been
+	 * reused for a new job since the only thread creating jobs is the main GC thread,
+	 * i.e., this one.
+	 */
 	if (job)
 		sgen_thread_pool_job_wait (job);
 	SGEN_ASSERT (0, !sweep_job, "Why did the sweep job not null itself?");

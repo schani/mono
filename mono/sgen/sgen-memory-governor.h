@@ -33,7 +33,8 @@ void sgen_memgov_collection_start (int generation);
 void sgen_memgov_collection_end (int generation, gboolean forced);
 
 /* GC trigger heuristics */
-gboolean sgen_need_major_collection (mword space_needed);
+gboolean sgen_should_start_major_collection (mword space_needed);
+gboolean sgen_should_finish_major_collection (mword space_needed);
 
 
 typedef enum {
