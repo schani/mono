@@ -1556,7 +1556,7 @@ collect_nursery (SgenGrayQueue *unpin_queue, gboolean finish_up_concurrent_mark)
 
 	major_collector.start_nursery_collection ();
 
-	sgen_memgov_minor_collection_start ();
+	sgen_memgov_collection_start (GENERATION_NURSERY);
 
 	init_gray_queue ();
 
@@ -1673,7 +1673,7 @@ collect_nursery (SgenGrayQueue *unpin_queue, gboolean finish_up_concurrent_mark)
 
 	binary_protocol_flush_buffers (FALSE);
 
-	sgen_memgov_minor_collection_end ();
+	sgen_memgov_collection_end (GENERATION_NURSERY, TRUE);
 
 	/*objects are late pinned because of lack of memory, so a major is a good call*/
 	needs_major = objects_pinned > 0;
@@ -1970,7 +1970,7 @@ major_start_collection (gboolean concurrent, size_t *old_next_pin_slot)
 
 	reset_pinned_from_failed_allocation ();
 
-	sgen_memgov_major_collection_start ();
+	sgen_memgov_collection_start (GENERATION_OLD);
 
 	//count_ref_nonref_objs ();
 	//consistency_check ();
@@ -2111,7 +2111,7 @@ major_finish_collection (const char *reason, size_t old_next_pin_slot, gboolean 
 
 	g_assert (sgen_gray_object_queue_is_empty (&gray_queue));
 
-	sgen_memgov_major_collection_end (forced);
+	sgen_memgov_collection_end (GENERATION_OLD, forced);
 	current_collection_generation = -1;
 
 	memset (&counts, 0, sizeof (ScannedObjectCounts));
@@ -3402,6 +3402,7 @@ sgen_stop_world (int generation)
 void
 sgen_restart_world (int generation, GGTimingInfo *timing)
 {
+	int i;
 	long long major_total = -1, major_marked = -1, los_total = -1, los_marked = -1;
 
 	SGEN_ASSERT (0, world_is_stopped, "Why are we restarting a running world?");
@@ -3421,7 +3422,10 @@ sgen_restart_world (int generation, GGTimingInfo *timing)
 	if (sgen_client_bridge_need_processing ())
 		sgen_client_bridge_processing_finish (generation);
 
-	sgen_memgov_collection_end (generation, timing, timing ? 2 : 0);
+	for (i = 0; i < (timing ? 2 : 0); ++i) {
+		if (timing [i].generation != -1)
+			sgen_client_log_timing (&timing [i]);
+	}
 }
 
 gboolean

@@ -131,48 +131,27 @@ sgen_need_major_collection (mword space_needed)
 }
 
 void
-sgen_memgov_minor_collection_start (void)
-{
-}
-
-void
-sgen_memgov_minor_collection_end (void)
-{
-}
-
-void
-sgen_memgov_major_collection_start (void)
-{
-	need_calculate_minor_collection_allowance = TRUE;
-
-	if (debug_print_allowance) {
-		SGEN_LOG (0, "Starting collection with heap size %ld bytes", (long)(major_collector.get_num_major_sections () * major_collector.section_size + los_memory_usage));
-	}
-}
-
-void
-sgen_memgov_major_collection_end (gboolean forced)
-{
-	last_collection_los_memory_usage = los_memory_usage;
-
-	if (forced) {
-		sgen_get_major_collector ()->finish_sweeping ();
-		sgen_memgov_calculate_minor_collection_allowance ();
-	}
-}
-
-void
 sgen_memgov_collection_start (int generation)
 {
+	if (generation == GENERATION_OLD) {
+		need_calculate_minor_collection_allowance = TRUE;
+
+		if (debug_print_allowance) {
+			SGEN_LOG (0, "Starting collection with heap size %ld bytes", (long)(major_collector.get_num_major_sections () * major_collector.section_size + los_memory_usage));
+		}
+	}
 }
 
 void
-sgen_memgov_collection_end (int generation, GGTimingInfo* info, int info_count)
+sgen_memgov_collection_end (int generation, gboolean forced)
 {
-	int i;
-	for (i = 0; i < info_count; ++i) {
-		if (info[i].generation != -1)
-			sgen_client_log_timing (&info [i]);
+	if (generation == GENERATION_OLD) {
+		last_collection_los_memory_usage = los_memory_usage;
+
+		if (forced) {
+			sgen_get_major_collector ()->finish_sweeping ();
+			sgen_memgov_calculate_minor_collection_allowance ();
+		}
 	}
 }
 
