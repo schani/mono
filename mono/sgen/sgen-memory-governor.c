@@ -55,9 +55,6 @@ static gboolean debug_print_allowance = FALSE;
 /* use this to tune when to do a major/minor collection */
 static mword major_collection_trigger_size;
 
-static mword last_major_num_sections = 0;
-static mword last_los_memory_usage = 0;
-
 static gboolean need_calculate_minor_collection_allowance;
 
 /* The size of the LOS after the last major collection, after sweeping. */
@@ -175,7 +172,7 @@ sgen_memgov_collection_end (int generation, GGTimingInfo* info, int info_count)
 	int i;
 	for (i = 0; i < info_count; ++i) {
 		if (info[i].generation != -1)
-			sgen_client_log_timing (&info [i], last_major_num_sections, last_los_memory_usage);
+			sgen_client_log_timing (&info [i]);
 	}
 }
 
