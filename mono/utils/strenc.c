@@ -161,8 +161,35 @@ gchar *mono_utf8_from_external (const gchar *in)
 	return(NULL);
 }
 
+gchar *
+mono_utf8_to_external (const gchar *utf8)
+{
+	const gchar *encoding_list = g_getenv ("MONO_EXTERNAL_ENCODINGS");
+	gchar *res, **encodings;
+	int i;
+	if (!encoding_list)
+		/* Do UTF8 */
+		return g_strdup (utf8);
+
+	encodings = g_strsplit (encoding_list, ":", 0);
+	for (i = 0; encodings [i]; ++i) {
+		res = strcmp (encodings [i], "default_locale") == 0
+			? g_locale_from_utf8 (utf8, -1, NULL, NULL, NULL)
+			: g_convert (utf8, -1, encodings[i], "UTF8", NULL, NULL, NULL);
+		if (res)
+			break;
+	}
+
+	if (!res)
+		/* Nothing else worked, so just return the utf8 */
+		res = g_strdup (utf8);
+
+	g_strfreev (encodings);
+	return res;
+}
+
 /**
- * mono_unicode_to_external:
+ * mono_utf16_to_external:
  * @uni: an UTF16 string to conver to an external representation.
  *
  * Turns NULL-terminated UTF16 into either UTF8, or the first
@@ -171,48 +198,20 @@ gchar *mono_utf8_from_external (const gchar *in)
  *
  * Callers must free the returned string.
  */
-gchar *mono_unicode_to_external (const gunichar2 *uni)
+gchar *mono_utf16_to_external (const gunichar2 *uni)
 {
 	gchar *utf8;
-	const gchar *encoding_list;
-	
+	gchar *res;
 	/* Turn the unicode into utf8 to start with, because its
 	 * easier to work with gchar * than gunichar2 *
+	 *
+	 * FIXME: Avoid allocation.
 	 */
-	utf8=g_utf16_to_utf8 (uni, -1, NULL, NULL, NULL);
-	g_assert (utf8!=NULL);
-	
-	encoding_list=g_getenv ("MONO_EXTERNAL_ENCODINGS");
-	if(encoding_list==NULL) {
-		/* Do UTF8 */
-		return(utf8);
-	} else {
-		gchar *res, **encodings;
-		int i;
-		
-		encodings=g_strsplit (encoding_list, ":", 0);
-		for(i=0; encodings[i]!=NULL; i++) {
-			if(!strcmp (encodings[i], "default_locale")) {
-				res=g_locale_from_utf8 (utf8, -1, NULL, NULL,
-							NULL);
-			} else {
-				res=g_convert (utf8, -1, encodings[i], "UTF8",
-					       NULL, NULL, NULL);
-			}
-
-			if(res!=NULL) {
-				g_free (utf8);
-				g_strfreev (encodings);
-				
-				return(res);
-			}
-		}
-	
-		g_strfreev (encodings);
-	}
-	
-	/* Nothing else worked, so just return the utf8 */
-	return(utf8);
+	utf8 = g_utf16_to_utf8 (uni, -1, NULL, NULL, NULL);
+	g_assert (utf8);
+	res = mono_utf8_to_external (utf8);
+	g_free (utf8);
+	return res;
 }
 
 /**

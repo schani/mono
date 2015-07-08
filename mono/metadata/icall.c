@@ -854,7 +854,7 @@ ves_icall_System_Runtime_CompilerServices_RuntimeHelpers_InitializeArray (MonoAr
 ICALL_EXPORT gint
 ves_icall_System_Runtime_CompilerServices_RuntimeHelpers_GetOffsetToStringData (void)
 {
-	return offsetof (MonoString, chars);
+	return offsetof (MonoString, bytes);
 }
 
 ICALL_EXPORT MonoObject *
@@ -1057,22 +1057,13 @@ ves_icall_System_ValueType_Equals (MonoObject *this_obj, MonoObject *that, MonoA
 
 
 		case MONO_TYPE_STRING: {
-			MonoString *s1, *s2;
-			guint32 s1len, s2len;
-			s1 = *(MonoString**)((guint8*)this_obj + field->offset);
-			s2 = *(MonoString**)((guint8*)that + field->offset);
+			MonoString *s1 = *(MonoString**)((guint8*)this_obj + field->offset);
+			MonoString *s2 = *(MonoString**)((guint8*)that + field->offset);
 			if (s1 == s2)
 				break;
-			if ((s1 == NULL) || (s2 == NULL))
+			if (!s1 || !s2)
 				return FALSE;
-			s1len = mono_string_length (s1);
-			s2len = mono_string_length (s2);
-			if (s1len != s2len)
-				return FALSE;
-
-			if (memcmp (mono_string_chars (s1), mono_string_chars (s2), s1len * sizeof (gunichar2)) != 0)
-				return FALSE;
-			break;
+			return mono_string_equal (s1, s2);
 		}
 		default:
 			if (!values)
@@ -5962,7 +5953,7 @@ ves_icall_System_Environment_InternalSetEnvironmentVariable (MonoString *name, M
 
 #ifdef HOST_WIN32
 	utf16_name = mono_string_to_utf16 (name);
-	if ((value == NULL) || (mono_string_length (value) == 0) || (mono_string_chars (value)[0] == 0)) {
+	if (value == NULL || mono_string_length_fast (value, TRUE) == 0 || mono_string_char_at (value, 0) == 0) {
 		SetEnvironmentVariable (utf16_name, NULL);
 		g_free (utf16_name);
 		return;
@@ -5977,7 +5968,7 @@ ves_icall_System_Environment_InternalSetEnvironmentVariable (MonoString *name, M
 #else
 	utf8_name = mono_string_to_utf8 (name);	/* FIXME: this should be ascii */
 
-	if ((value == NULL) || (mono_string_length (value) == 0) || (mono_string_chars (value)[0] == 0)) {
+	if (value == NULL || mono_string_length_fast (value, TRUE) == 0 || mono_string_char_at (value, 0) == 0) {
 		g_unsetenv (utf8_name);
 		g_free (utf8_name);
 		return;
@@ -6418,7 +6409,7 @@ get_bundled_app_config (void)
 
 	domain = mono_domain_get ();
 	file = domain->setup->configuration_file;
-	if (!file || file->length == 0)
+	if (!file || mono_string_length_fast (file, TRUE) == 0)
 		return NULL;
 
 	// Retrieve config file and remove the extension

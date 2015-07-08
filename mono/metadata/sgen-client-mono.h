@@ -140,7 +140,7 @@ sgen_client_slow_object_get_size (GCVTable vtable, GCObject* o)
 	 * mono_array_length_fast not using the object's vtable.
 	 */
 	if (klass == mono_defaults.string_class) {
-		return G_STRUCT_OFFSET (MonoString, chars) + 2 * mono_string_length_fast ((MonoString*) o) + 2;
+		return G_STRUCT_OFFSET (MonoString, bytes) + mono_string_size_fast ((MonoString*) o);
 	} else if (klass->rank) {
 		return sgen_mono_array_size (vtable, (MonoArray*)o, NULL, 0);
 	} else {
@@ -165,7 +165,7 @@ sgen_client_par_object_get_size (GCVTable vtable, GCObject* o)
 		SGEN_ASSERT (9, size >= sizeof (MonoObject), "Run length object size to small");
 		return size;
 	} else if (descr == SGEN_DESC_STRING) {
-		return G_STRUCT_OFFSET (MonoString, chars) + 2 * mono_string_length_fast ((MonoString*) o) + 2;
+		return G_STRUCT_OFFSET (MonoString, bytes) + mono_string_size_fast ((MonoString*) o);
 	} else if (type == DESC_TYPE_VECTOR) {
 		return sgen_mono_array_size (vtable, (MonoArray*)o, NULL, descr);
 	}

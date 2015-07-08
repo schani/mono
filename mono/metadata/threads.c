@@ -1275,9 +1275,8 @@ mono_thread_set_name_internal (MonoInternalThread *this_obj, MonoString *name, g
 		this_obj->name_len = 0;
 	}
 	if (name) {
-		this_obj->name = g_new (gunichar2, mono_string_length (name));
-		memcpy (this_obj->name, mono_string_chars (name), mono_string_length (name) * 2);
-		this_obj->name_len = mono_string_length (name);
+		this_obj->name = mono_string_to_utf16 (name);
+		this_obj->name_len = mono_string_length_fast (name, TRUE);
 	}
 	else
 		this_obj->name = NULL;

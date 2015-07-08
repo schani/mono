@@ -1010,6 +1010,7 @@ void sgen_check_for_xdomain_refs (void);
 GCObject* sgen_find_object_for_ptr (char *ptr);
 
 void mono_gc_scan_for_specific_ref (GCObject *key, gboolean precise);
+void sgen_scan_for_string (char *search);
 
 void sgen_debug_enable_heap_dump (const char *filename);
 void sgen_debug_dump_heap (const char *type, int num, const char *reason);

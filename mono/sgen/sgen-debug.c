@@ -866,6 +866,31 @@ mono_gc_scan_for_specific_ref (GCObject *key, gboolean precise)
 
 #ifndef SGEN_WITHOUT_MONO
 
+static void
+scan_for_string_callback (GCObject *obj, size_t size, void *data)
+{
+	MonoString *str;
+	char *search = (char *)data;
+
+	if (sgen_obj_get_descriptor (obj) != SGEN_DESC_STRING)
+		return;
+
+	SGEN_ASSERT (0, obj->vtable->klass == mono_defaults.string_class, "Why is an object with a string descriptor not a string?");
+
+	str = (MonoString *)obj;
+
+	if (strstr (str->bytes, search) != NULL)
+		g_print ("%p: (length %d, %s) %s\n", str, mono_string_length_fast (str, TRUE), (mono_string_is_compact (str) ? "ASCII" : "UTF-16"), str->bytes);
+
+}
+
+void
+sgen_scan_for_string (char *search) {
+	sgen_scan_area_with_callback (nursery_section->data, nursery_section->end_data, scan_for_string_callback, (void *)search, FALSE, FALSE);
+	major_collector.iterate_objects (ITERATE_OBJECTS_SWEEP_ALL, scan_for_string_callback, (void *)search);
+	sgen_los_iterate_objects (scan_for_string_callback, (void *)search);
+}
+
 static MonoDomain *check_domain = NULL;
 
 static void

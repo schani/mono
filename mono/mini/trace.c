@@ -367,13 +367,20 @@ string_to_utf8 (MonoString *s)
 {
 	char *as;
 	GError *error = NULL;
+	size_t length;
 
 	g_assert (s);
 
-	if (!s->length)
+	length = mono_string_length_fast (s, TRUE);
+
+	if (!length)
 		return g_strdup ("");
 
-	as = g_utf16_to_utf8 (mono_string_chars (s), s->length, NULL, NULL, &error);
+	/* ASCII is a subset of UTF-8. Hooray! */
+	if (mono_string_is_compact (s))
+		return g_strdup (mono_string_bytes_fast (s));
+
+	as = g_utf16_to_utf8 (mono_string_chars (s), length, NULL, NULL, &error);
 	if (error) {
 		/* Happens with StringBuilders */
 		g_error_free (error);

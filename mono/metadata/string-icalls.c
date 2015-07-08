@@ -34,9 +34,9 @@ ves_icall_System_String_ctor_RedirectToCreateString (void)
 }
 
 MonoString *
-ves_icall_System_String_InternalAllocateStr (gint32 length)
+ves_icall_System_String_InternalAllocateStr (gint32 length, gint32 encoding)
 {
-	return mono_string_new_size(mono_domain_get (), length);
+	return mono_string_new_size(mono_domain_get (), length, encoding);
 }
 
 MonoString  *
@@ -62,7 +62,7 @@ int
 ves_icall_System_String_GetLOSLimit (void)
 {
 	int limit = mono_gc_get_los_limit ();
-
-	return (limit - 2 - G_STRUCT_OFFSET (MonoString, chars)) / 2;
+	/* FIXME: I guess this should still compute in UTF-16 for the sake of being conservative, but I'm not sure. */
+	return (limit - sizeof (gunichar2) - G_STRUCT_OFFSET (MonoString, bytes)) / sizeof (gunichar2);
 }
 

@@ -43,7 +43,18 @@
 #include <mono/utils/mono-error-internals.h>
 #include <mono/utils/mono-memory-model.h>
 #include <mono/utils/checked-build.h>
+#include <mono/sgen/sgen-conf.h>
 #include "cominterop.h"
+
+#ifdef HEAVY_STATISTICS
+static guint64 stat_strings_allocated_compact = 0;
+static guint64 stat_strings_allocated_non_compact = 0;
+static guint64 stat_string_chars_allocated_compact = 0;
+static guint64 stat_string_bytes_allocated_compact = 0;
+static guint64 stat_string_chars_allocated_non_compact = 0;
+static guint64 stat_string_bytes_allocated_non_compact = 0;
+static gboolean string_counters_inited = FALSE;
+#endif
 
 static void
 get_default_field_value (MonoDomain* domain, MonoClassField *field, void *value);
@@ -958,7 +969,7 @@ MonoString*
 mono_string_alloc (int length)
 {
 	MONO_REQ_GC_UNSAFE_MODE;
-	return mono_string_new_size (mono_domain_get (), length);
+	return mono_string_new_size (mono_domain_get (), length, MONO_ENCODING_UTF16);
 }
 
 void
@@ -975,7 +986,7 @@ mono_class_compute_gc_descriptor (MonoClass *class)
 		mono_loader_lock ();
 
 		mono_register_jit_icall (mono_object_new_fast, "mono_object_new_fast", mono_create_icall_signature ("object ptr"), FALSE);
-		mono_register_jit_icall (mono_string_alloc, "mono_string_alloc", mono_create_icall_signature ("object int"), FALSE);
+		mono_register_jit_icall (mono_string_alloc, "mono_string_alloc", mono_create_icall_signature ("object int int"), FALSE);
 
 		gcj_inited = TRUE;
 		mono_loader_unlock ();
@@ -2599,7 +2610,7 @@ mono_remote_class (MonoDomain *domain, MonoString *class_name, MonoClass *proxy_
 	rc->xdomain_vtable = NULL;
 	rc->proxy_class_name = name;
 #ifndef DISABLE_PERFCOUNTERS
-	mono_perfcounters->loader_bytes += mono_string_length (class_name) + 1;
+	mono_perfcounters->loader_bytes += mono_string_size_fast (class_name);
 #endif
 
 	g_hash_table_insert (domain->proxy_vtable_hash, key, rc);
@@ -4959,6 +4970,58 @@ mono_array_new_specific (MonoVTable *vtable, uintptr_t n)
 	return ao;
 }
 
+#define ENABLE_COMPACT_ENCODING 1
+
+#ifdef HEAVY_STATISTICS
+static void
+init_string_counters ()
+{
+	mono_counters_register ("Strings allocated compact", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_strings_allocated_compact);
+	mono_counters_register ("Strings allocated non-compact ", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_strings_allocated_non_compact);
+	mono_counters_register ("String chars allocated compact", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_string_chars_allocated_compact);
+	mono_counters_register ("String bytes allocated compact", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_string_bytes_allocated_compact);
+	mono_counters_register ("String chars allocated non-compact", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_string_chars_allocated_non_compact);
+	mono_counters_register ("String bytes allocated non-compact", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_string_bytes_allocated_non_compact);
+	string_counters_inited = TRUE;
+}
+#endif
+
+static MonoInternalEncoding
+mono_string_infer_encoding_utf8 (const char *text, size_t length)
+{
+#if ENABLE_COMPACT_ENCODING
+	MonoInternalEncoding encoding = MONO_ENCODING_ASCII;
+	const char *p = text;
+	while (length--) {
+		if ((unsigned char)(*p++) & 0x80) {
+			encoding = MONO_ENCODING_UTF16;
+			break;
+		}			
+	}
+#else
+	MonoInternalEncoding encoding = MONO_ENCODING_UTF16;
+#endif
+	return encoding;
+}
+
+static MonoInternalEncoding
+mono_string_infer_encoding_utf16 (const guint16 *text, size_t length)
+{
+#if ENABLE_COMPACT_ENCODING
+	MonoInternalEncoding encoding = MONO_ENCODING_ASCII;
+	const guint16 *p = text;
+	while (length--) {
+		if (*p++ > (guint16)0x7F) {
+			encoding = MONO_ENCODING_UTF16;
+			break;
+		}
+	}
+#else
+	MonoInternalEncoding encoding = MONO_ENCODING_UTF16;
+#endif
+	return encoding;
+}
+
 /**
  * mono_string_new_utf16:
  * @text: a pointer to an utf16 string
@@ -4972,11 +5035,25 @@ mono_string_new_utf16 (MonoDomain *domain, const guint16 *text, gint32 len)
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	MonoString *s;
-	
-	s = mono_string_new_size (domain, len);
-	g_assert (s != NULL);
+	MonoInternalEncoding encoding = mono_string_infer_encoding_utf16 (text, len);
 
-	memcpy (mono_string_chars (s), text, len * 2);
+	s = mono_string_new_size (domain, len, encoding);
+	g_assert (s != NULL);
+	/* Can't use mono_string_size_fast here because 'text' is not null-terminated. */
+	switch (encoding) {
+	case MONO_ENCODING_UTF16:
+		memcpy (s->bytes, text, len * sizeof (gunichar2));
+		break;
+	case MONO_ENCODING_ASCII:
+		{
+			size_t i;
+			for (i = 0; i < len; ++i)
+				s->bytes [i] = (char)text [i];
+		}
+		break;
+	default:
+		g_assert_not_reached ();
+	}
 
 	return s;
 }
@@ -5006,7 +5083,7 @@ mono_string_new_utf32 (MonoDomain *domain, const mono_unichar4 *text, gint32 len
 
 	while (utf16_output [utf16_len]) utf16_len++;
 	
-	s = mono_string_new_size (domain, utf16_len);
+	s = mono_string_new_size (domain, utf16_len, MONO_ENCODING_UTF16);
 	g_assert (s != NULL);
 
 	memcpy (mono_string_chars (s), utf16_output, utf16_len * 2);
@@ -5024,25 +5101,55 @@ mono_string_new_utf32 (MonoDomain *domain, const mono_unichar4 *text, gint32 len
  * Returns: A newly created string object of @len
  */
 MonoString *
-mono_string_new_size (MonoDomain *domain, gint32 len)
+mono_string_new_size (MonoDomain *domain, gint32 len, int32_t encoding)
 {
 	MONO_REQ_GC_UNSAFE_MODE;
 
 	MonoString *s;
 	MonoVTable *vtable;
 	size_t size;
+	size_t max_len;
+
+#ifdef HEAVY_STATISTICS
+	if (!string_counters_inited)
+		init_string_counters ();
+	switch (encoding) {
+	case MONO_ENCODING_ASCII:
+		HEAVY_STAT (++stat_strings_allocated_compact);
+		break;
+	case MONO_ENCODING_UTF16:
+		HEAVY_STAT (++stat_strings_allocated_non_compact);
+		break;
+	}
+#endif
+
+	switch (encoding) {
+	case MONO_ENCODING_UTF16:
+		size = G_STRUCT_OFFSET (MonoString, bytes) + (((size_t)len + 1) * sizeof (gunichar2));
+		max_len = (SIZE_MAX - G_STRUCT_OFFSET (MonoString, bytes) - 8) / sizeof (gunichar2);
+		HEAVY_STAT (stat_string_chars_allocated_non_compact += len);
+		HEAVY_STAT (stat_string_bytes_allocated_non_compact += size);
+		break;
+	case MONO_ENCODING_ASCII:
+		size = G_STRUCT_OFFSET (MonoString, bytes) + (((size_t)len + 1) * sizeof (char));
+		max_len = (SIZE_MAX - G_STRUCT_OFFSET (MonoString, bytes) - 8);
+		HEAVY_STAT (stat_string_chars_allocated_compact += len);
+		HEAVY_STAT (stat_string_bytes_allocated_compact += size);
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+
+	g_assert (size > 0);
 
 	/* check for overflow */
-	if (len < 0 || len > ((SIZE_MAX - G_STRUCT_OFFSET (MonoString, chars) - 8) / 2))
+	if (len < 0 || len > max_len)
 		mono_gc_out_of_memory (-1);
-
-	size = (G_STRUCT_OFFSET (MonoString, chars) + (((size_t)len + 1) * 2));
-	g_assert (size > 0);
 
 	vtable = mono_class_vtable (domain, mono_defaults.string_class);
 	g_assert (vtable);
 
-	s = mono_gc_alloc_string (vtable, size, len);
+	s = mono_gc_alloc_string (vtable, size, len, encoding);
 
 	return s;
 }
@@ -5092,17 +5199,28 @@ mono_string_new (MonoDomain *domain, const char *text)
     guint16 *ut;
     glong items_written;
     int l;
+	MonoInternalEncoding encoding;
 
     l = strlen (text);
-   
-    ut = g_utf8_to_utf16 (text, l, NULL, &items_written, &error);
+	encoding = mono_string_infer_encoding_utf8 (text, l);
 
-    if (!error)
-        o = mono_string_new_utf16 (domain, ut, items_written);
-    else
-        g_error_free (error);
+	switch (encoding) {
+	case MONO_ENCODING_UTF16:
+		ut = g_utf8_to_utf16 (text, l, NULL, &items_written, &error);
+		if (!error)
+			o = mono_string_new_utf16 (domain, ut, items_written);
+		else
+			g_error_free (error);
+		g_free (ut);
+		break;
+	case MONO_ENCODING_ASCII:
+		o = mono_string_new_size (domain, l, MONO_ENCODING_ASCII);
+		memcpy (mono_string_bytes_fast (o), text, l);
+		break;
+	default:
+		g_assert_not_reached ();
+	}
 
-    g_free (ut);
 /*FIXME g_utf8_get_char, g_utf8_next_char and g_utf8_validate are not part of eglib.*/
 #if 0
 	gunichar2 *str;
@@ -5114,7 +5232,7 @@ mono_string_new (MonoDomain *domain, const char *text)
 		return NULL;
 
 	len = g_utf8_strlen (text, -1);
-	o = mono_string_new_size (domain, len);
+	o = mono_string_new_size (domain, len, encoding);
 	str = mono_string_chars (o);
 
 	while (text < end) {
@@ -5281,7 +5399,7 @@ mono_object_get_size (MonoObject* o)
 
 	MonoClass* klass = mono_object_class (o);
 	if (klass == mono_defaults.string_class) {
-		return sizeof (MonoString) + 2 * mono_string_length ((MonoString*) o) + 2;
+		return sizeof (MonoString) + mono_string_size_fast ((MonoString *)o);
 	} else if (o->vtable->rank) {
 		MonoArray *array = (MonoArray*)o;
 		size_t size = sizeof (MonoArray) + mono_array_element_size (klass) * mono_array_length (array);
@@ -5446,11 +5564,12 @@ mono_string_get_pinned (MonoString *str)
 
 	int size;
 	MonoString *news;
-	size = sizeof (MonoString) + 2 * (mono_string_length (str) + 1);
+	size = sizeof (MonoString) + mono_string_size_fast (str);
 	news = mono_gc_alloc_pinned_obj (((MonoObject*)str)->vtable, size);
 	if (news) {
-		memcpy (mono_string_chars (news), mono_string_chars (str), mono_string_length (str) * 2);
-		news->length = mono_string_length (str);
+		memcpy (news->bytes, str->bytes, mono_string_size_fast (str));
+		mono_string_set_length (news, mono_string_length_fast (str, TRUE),
+			mono_string_is_compact (str) ? MONO_ENCODING_ASCII : MONO_ENCODING_UTF16);
 	}
 	return news;
 }
@@ -5654,25 +5773,36 @@ mono_string_to_utf8_checked (MonoString *s, MonoError *error)
 	long written = 0;
 	char *as;
 	GError *gerror = NULL;
+	size_t length;
 
 	mono_error_init (error);
 
 	if (s == NULL)
 		return NULL;
 
-	if (!s->length)
+	length = mono_string_length_fast (s, TRUE);
+
+	if (!length)
 		return g_strdup ("");
 
-	as = g_utf16_to_utf8 (mono_string_chars (s), s->length, NULL, &written, &gerror);
+	/* ASCII is a subset of UTF-8. Hooray! */
+	if (mono_string_is_compact (s)) {
+		char *result = g_malloc (length + 1);
+		memcpy (result, mono_string_bytes_fast (s), length);
+		result [length] = '\0';
+		return result;
+	}
+
+	as = g_utf16_to_utf8 (mono_string_chars_fast (s), length, NULL, &written, &gerror);
 	if (gerror) {
 		mono_error_set_argument (error, "string", "%s", gerror->message);
 		g_error_free (gerror);
 		return NULL;
 	}
 	/* g_utf16_to_utf8  may not be able to complete the convertion (e.g. NULL values were found, #335488) */
-	if (s->length > written) {
+	if (length > written) {
 		/* allocate the total length and copy the part of the string that has been converted */
-		char *as2 = g_malloc0 (s->length);
+		char *as2 = g_malloc0 (length);
 		memcpy (as2, as, written);
 		g_free (as);
 		as = as2;
@@ -5697,19 +5827,26 @@ mono_string_to_utf8_ignore (MonoString *s)
 
 	long written = 0;
 	char *as;
+	size_t length;
 
 	if (s == NULL)
 		return NULL;
 
-	if (!s->length)
+	length = mono_string_length_fast (s, TRUE);
+
+	if (!length)
 		return g_strdup ("");
 
-	as = g_utf16_to_utf8 (mono_string_chars (s), s->length, NULL, &written, NULL);
+	/* ASCII is a subset of UTF-8. Hooray! */
+	if (mono_string_is_compact (s))
+		return g_strdup (mono_string_bytes_fast (s));
+
+	as = g_utf16_to_utf8 (mono_string_chars (s), length, NULL, &written, NULL);
 
 	/* g_utf16_to_utf8  may not be able to complete the convertion (e.g. NULL values were found, #335488) */
-	if (s->length > written) {
+	if (length > written) {
 		/* allocate the total length and copy the part of the string that has been converted */
-		char *as2 = g_malloc0 (s->length);
+		char *as2 = g_malloc0 (length);
 		memcpy (as2, as, written);
 		g_free (as);
 		as = as2;
@@ -5746,6 +5883,18 @@ mono_string_to_utf8_mp_ignore (MonoMemPool *mp, MonoString *s)
 	return mono_string_to_utf8_internal (mp, NULL, s, TRUE, NULL);
 }
 
+void
+mono_string_copy_to_utf16 (MonoString *string, mono_unichar2 *buffer)
+{
+	if (mono_string_is_compact (string)) {
+		size_t i;
+		const char *const bytes = mono_string_bytes_fast (string);
+		for (i = 0; i < mono_string_length_fast (string, TRUE); ++i)
+			buffer [i] = (mono_unichar2)bytes [i];
+	} else {
+		memcpy (buffer, mono_string_chars_fast (string), mono_string_length_fast (string, TRUE) * sizeof (mono_unichar2));
+	}
+}
 
 /**
  * mono_string_to_utf16:
@@ -5761,21 +5910,27 @@ mono_string_to_utf16 (MonoString *s)
 {
 	MONO_REQ_GC_UNSAFE_MODE;
 
-	char *as;
+	mono_unichar2 *as;
+	size_t length;
 
 	if (s == NULL)
 		return NULL;
 
-	as = g_malloc ((s->length * 2) + 2);
-	as [(s->length * 2)] = '\0';
-	as [(s->length * 2) + 1] = '\0';
+	length = mono_string_length_fast (s, TRUE);
 
-	if (!s->length) {
-		return (gunichar2 *)(as);
-	}
+	as = g_malloc ((length + 1) * sizeof (mono_unichar2));
+	as [length] = 0x0000;
+
+	if (!length)
+		return as;
 	
-	memcpy (as, mono_string_chars(s), s->length * 2);
-	return (gunichar2 *)(as);
+	if (mono_string_is_compact (s)) {
+		size_t i;
+		for (i = 0; i < length; ++i)
+			as [i] = (mono_unichar2)mono_string_bytes_fast (s) [i];
+	} else
+		memcpy (as, mono_string_chars_fast (s), length * 2);
+	return as;
 }
 
 /**
@@ -5793,11 +5948,20 @@ mono_string_to_utf32 (MonoString *s)
 	mono_unichar4 *utf32_output = NULL; 
 	GError *error = NULL;
 	glong items_written;
+	size_t length;
 	
 	if (s == NULL)
 		return NULL;
 		
-	utf32_output = g_utf16_to_ucs4 (s->chars, s->length, NULL, &items_written, &error);
+	length = mono_string_length_fast (s, TRUE);
+
+	if (mono_string_is_compact (s)) {
+		size_t i;
+		utf32_output = g_malloc (length * sizeof (mono_unichar4));
+		for (i = 0; i < length; ++i)
+			utf32_output [i] = (mono_unichar4)mono_string_bytes_fast (s) [i];
+	} else
+		utf32_output = g_utf16_to_ucs4 (mono_string_chars_fast (s), length, NULL, &items_written, &error);
 	
 	if (error)
 		g_error_free (error);
@@ -5924,6 +6088,13 @@ mono_string_to_utf8_mp (MonoMemPool *mp, MonoString *s, MonoError *error)
 	return mono_string_to_utf8_internal (mp, NULL, s, FALSE, error);
 }
 
+char *
+mono_string_to_external (MonoString *string)
+{
+	return mono_string_is_compact (string)
+		? mono_utf8_to_external (mono_string_bytes_fast (string))
+		: mono_utf16_to_external (mono_string_chars_fast (string));
+}
 
 static MonoRuntimeExceptionHandlingCallbacks eh_callbacks;
 
@@ -6859,22 +7030,20 @@ gunichar2 *
 mono_string_chars (MonoString *s)
 {
 	// MONO_REQ_GC_UNSAFE_MODE; //FIXME too much trouble for now
-
-	return s->chars;
+	return mono_string_chars_fast (s);
 }
 
 /**
  * mono_string_length:
  * @s: MonoString
  *
- * Returns the lenght in characters of the string
+ * Returns the length in characters of the string
  */
 int
 mono_string_length (MonoString *s)
 {
 	MONO_REQ_GC_UNSAFE_MODE;
-
-	return s->length;
+	return mono_string_length_fast (s, FALSE);
 }
 
 /**

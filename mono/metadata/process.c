@@ -543,11 +543,11 @@ MonoArray *ves_icall_System_Diagnostics_Process_GetModules_internal (MonoObject 
 void ves_icall_System_Diagnostics_FileVersionInfo_GetVersionInfo_internal (MonoObject *this_obj, MonoString *filename)
 {
 	STASH_SYS_ASS (this_obj);
-	
-	process_get_fileversion (this_obj, mono_string_chars (filename));
-	process_set_field_string (this_obj, "filename",
-				  mono_string_chars (filename),
-				  mono_string_length (filename));
+	/* FIXME: Avoid allocation. */
+	gunichar2 *const filename_chars = mono_string_to_utf16 (filename);
+	process_get_fileversion (this_obj, filename_chars);
+	process_set_field_string (this_obj, "filename", filename_chars, mono_string_length_fast (filename, TRUE));
+	g_free(filename_chars);
 }
 
 /* Only used when UseShellExecute is false */
@@ -627,21 +627,21 @@ MonoBoolean ves_icall_System_Diagnostics_Process_ShellExecuteEx_internal (MonoPr
 	
 	
 	if (proc_start_info->filename != NULL) {
-		shellex.lpFile = mono_string_chars (proc_start_info->filename);
+		shellex.lpFile = mono_string_to_utf16 (proc_start_info->filename);
 	}
 
 	if (proc_start_info->arguments != NULL) {
-		shellex.lpParameters = mono_string_chars (proc_start_info->arguments);
+		shellex.lpParameters = mono_string_to_utf16 (proc_start_info->arguments);
 	}
 
 	if (proc_start_info->verb != NULL &&
-	    mono_string_length (proc_start_info->verb) != 0) {
-		shellex.lpVerb = mono_string_chars (proc_start_info->verb);
+	    mono_string_length_fast (proc_start_info->verb, TRUE) != 0) {
+		shellex.lpVerb = mono_string_to_utf16 (proc_start_info->verb);
 	}
 
 	if (proc_start_info->working_directory != NULL &&
-	    mono_string_length (proc_start_info->working_directory) != 0) {
-		shellex.lpDirectory = mono_string_chars (proc_start_info->working_directory);
+	    mono_string_length_fast (proc_start_info->working_directory, TRUE) != 0) {
+		shellex.lpDirectory = mono_string_to_utf16 (proc_start_info->working_directory);
 	}
 
 	if (proc_start_info->error_dialog) {	
@@ -663,6 +663,11 @@ MonoBoolean ves_icall_System_Diagnostics_Process_ShellExecuteEx_internal (MonoPr
 #endif
 		process_info->tid = 0;
 	}
+
+	g_free ((void *)shellex.lpFile);
+	g_free ((void *)shellex.lpParameters);
+	g_free ((void *)shellex.lpVerb);
+	g_free ((void *)shellex.lpDirectory);
 
 	return (ret);
 }
@@ -690,8 +695,14 @@ MonoBoolean ves_icall_System_Diagnostics_Process_CreateProcess_internal (MonoPro
 	if (proc_start_info->create_no_window)
 		creation_flags |= CREATE_NO_WINDOW;
 	
-	shell_path = mono_string_chars (proc_start_info->filename);
+	/* FIXME: This allocation is redundant and silly. */
+	shell_path = mono_string_is_compact (proc_start_info->filename)
+		? mono_string_to_utf16 (proc_start_info->filename)
+		: mono_string_chars_fast (proc_start_info->filename);
 	complete_path (shell_path, &spath);
+	if (mono_string_is_compact (proc_start_info->filename))
+		g_free (shell_path);
+
 	if (spath == NULL) {
 		process_info->pid = -ERROR_FILE_NOT_FOUND;
 		return FALSE;
@@ -729,9 +740,9 @@ MonoBoolean ves_icall_System_Diagnostics_Process_CreateProcess_internal (MonoPro
 			if (ms == NULL)
 				continue;
 
-			len += mono_string_length (ms) * sizeof (gunichar2);
+			len += mono_string_length_fast (ms, TRUE) * sizeof (gunichar2);
 			ms = mono_array_get (process_info->env_keys, MonoString *, i);
-			len += mono_string_length (ms) * sizeof (gunichar2);
+			len += mono_string_length_fast (ms, TRUE) * sizeof (gunichar2);
 			len += 2 * sizeof (gunichar2);
 		}
 
@@ -743,14 +754,15 @@ MonoBoolean ves_icall_System_Diagnostics_Process_CreateProcess_internal (MonoPro
 				continue;
 
 			key = mono_array_get (process_info->env_keys, MonoString *, i);
-			memcpy (ptr, mono_string_chars (key), mono_string_length (key) * sizeof (gunichar2));
-			ptr += mono_string_length (key);
+			
+			mono_string_copy_to_utf16 (key, ptr);
+			ptr += mono_string_length_fast (key, TRUE);
 
 			memcpy (ptr, equals16, sizeof (gunichar2));
 			ptr++;
 
-			memcpy (ptr, mono_string_chars (value), mono_string_length (value) * sizeof (gunichar2));
-			ptr += mono_string_length (value);
+			mono_string_copy_to_utf16 (value, ptr);
+			ptr += mono_string_length_fast (value, TRUE);
 			ptr++;
 		}
 
@@ -761,18 +773,31 @@ MonoBoolean ves_icall_System_Diagnostics_Process_CreateProcess_internal (MonoPro
 	/* The default dir name is "".  Turn that into NULL to mean
 	 * "current directory"
 	 */
-	if(proc_start_info->working_directory == NULL || mono_string_length (proc_start_info->working_directory)==0) {
+	if(proc_start_info->working_directory == NULL || mono_string_length_fast (proc_start_info->working_directory, TRUE)==0) {
 		dir=NULL;
 	} else {
-		dir=mono_string_chars (proc_start_info->working_directory);
+		dir=mono_string_to_utf16 (proc_start_info->working_directory);
 	}
 
 	if (process_info->username) {
 		logon_flags = process_info->load_user_profile ? LOGON_WITH_PROFILE : 0;
-		ret=CreateProcessWithLogonW (mono_string_chars (process_info->username), process_info->domain ? mono_string_chars (process_info->domain) : NULL, process_info->password, logon_flags, shell_path, cmd? mono_string_chars (cmd): NULL, creation_flags, env_vars, dir, &startinfo, &procinfo);
+		/* FIXME: Avoid copying these strings. */
+		mono_unichar2 *username = mono_string_to_utf16 (process_info->username);
+		mono_unichar2 *domain = process_info->domain ? mono_string_to_utf16 (process_info->domain) : NULL;
+		mono_unichar2 *password = mono_string_to_utf16 (process_info->password);
+		mono_unichar2 *cmd_chars = cmd ? mono_string_to_utf16 (cmd) : NULL;
+		ret = CreateProcessWithLogonW (username, domain, password, logon_flags, shell_path, cmd_chars, creation_flags, env_vars, dir, &startinfo, &procinfo);
+		g_free (username);
+		g_free (domain);
+		g_free (password);
+		g_free (cmd_chars);
 	} else {
-		ret=CreateProcess (shell_path, cmd? mono_string_chars (cmd): NULL, NULL, NULL, TRUE, creation_flags, env_vars, dir, &startinfo, &procinfo);
+		mono_unichar2 *cmd_chars = cmd ? mono_string_to_utf16 (cmd) : NULL;
+		ret = CreateProcess (shell_path, cmd_chars, NULL, NULL, TRUE, creation_flags, env_vars, dir, &startinfo, &procinfo);
+		g_free (cmd_chars);
 	}
+
+	g_free (dir);
 
 	g_free (env_vars);
 	if (free_shell_path)

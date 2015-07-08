@@ -1567,9 +1567,9 @@ mono_decompose_array_access_opts (MonoCompile *cfg)
 				case OP_BOUNDS_CHECK:
 					MONO_EMIT_NULL_CHECK (cfg, ins->sreg1);
 					if (COMPILE_LLVM (cfg))
-						MONO_EMIT_DEFAULT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, ins->sreg2, ins->flags & MONO_INST_FAULT);
+						MONO_EMIT_DEFAULT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, ins->sreg2, ins->flags & MONO_INST_FAULT, FALSE);
 					else
-						MONO_ARCH_EMIT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, ins->sreg2);
+						MONO_ARCH_EMIT_BOUNDS_CHECK (cfg, ins->sreg1, ins->inst_imm, ins->sreg2, FALSE);
 					break;
 				case OP_NEWARR:
 					if (cfg->opt & MONO_OPT_SHARED) {
@@ -1599,8 +1599,8 @@ mono_decompose_array_access_opts (MonoCompile *cfg)
 					}
 					break;
 				case OP_STRLEN:
-					MONO_EMIT_NEW_LOAD_MEMBASE_OP_FLAGS (cfg, OP_LOADI4_MEMBASE, ins->dreg,
-														 ins->sreg1, MONO_STRUCT_OFFSET (MonoString, length), ins->flags | MONO_INST_INVARIANT_LOAD);
+					MONO_EMIT_NEW_LOAD_MEMBASE_OP_FLAGS (cfg, OP_LOADI4_MEMBASE, ins->dreg, ins->sreg1, MONO_STRUCT_OFFSET (MonoString, tagged_length), ins->flags | MONO_INST_INVARIANT_LOAD);
+					MONO_EMIT_NEW_BIALU_IMM (cfg, OP_SHR_UN_IMM, ins->dreg, ins->dreg, 1);
 					break;
 				default:
 					break;

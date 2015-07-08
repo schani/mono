@@ -2245,12 +2245,13 @@ cominterop_get_managed_wrapper_adjusted (MonoMethod *method)
  */
 static void
 cominterop_mono_string_to_guid (MonoString* string, guint8 *guid) {
-	gunichar2 * chars = mono_string_chars (string);
+	gunichar2 *chars = mono_string_is_compact (string) ? mono_string_to_utf16 (string) : mono_string_chars_fast (string);
 	int i = 0;
 	static guint8 indexes[16] = {7, 5, 3, 1, 12, 10, 17, 15, 20, 22, 25, 27, 29, 31, 33, 35};
-
 	for (i = 0; i < sizeof(indexes); i++)
 		guid [i] = g_unichar_xdigit_value (chars [indexes [i]]) + (g_unichar_xdigit_value (chars [indexes [i] - 1]) << 4);
+	if (mono_string_is_compact (string))
+		g_free (chars);
 }
 
 static gboolean
@@ -2444,7 +2445,7 @@ cominterop_ccw_get_ids_of_names (MonoCCWInterface* ccwe, gpointer riid,
 		 mono_thread_attach (mono_get_root_domain ());
 
 	for (i=0; i < cNames; i++) {
-		methodname = mono_unicode_to_external (rgszNames[i]);
+		methodname = mono_utf16_to_external (rgszNames[i]);
 
 		method = mono_class_get_method_from_name(klass, methodname, -1);
 		if (method) {
@@ -2614,15 +2615,19 @@ mono_string_to_bstr (MonoString *string_obj)
 	if (!string_obj)
 		return NULL;
 #ifdef HOST_WIN32
-	return SysAllocStringLen (mono_string_chars (string_obj), mono_string_length (string_obj));
+	/* FIXME: Avoid allocation. */
+	gunichar2 *chars = mono_string_to_utf16 (string_obj);
+	gpointer result = SysAllocStringLen (chars, mono_string_length_fast (string_obj, TRUE));
+	g_free (chars);
+	return result;
 #else
 	if (com_provider == MONO_COM_DEFAULT) {
-		int slen = mono_string_length (string_obj);
+		int slen = mono_string_length_fast (string_obj, TRUE);
 		/* allocate len + 1 utf16 characters plus 4 byte integer for length*/
 		char *ret = g_malloc ((slen + 1) * sizeof(gunichar2) + sizeof(guint32));
 		if (ret == NULL)
 			return NULL;
-		memcpy (ret + sizeof(guint32), mono_string_chars (string_obj), slen * sizeof(gunichar2));
+		mono_string_copy_to_utf16 (string_obj, (mono_unichar2 *)(ret + sizeof(guint32)));
 		* ((guint32 *) ret) = slen * sizeof(gunichar2);
 		ret [4 + slen * sizeof(gunichar2)] = 0;
 		ret [5 + slen * sizeof(gunichar2)] = 0;
@@ -2632,9 +2637,10 @@ mono_string_to_bstr (MonoString *string_obj)
 		gpointer ret = NULL;
 		gunichar* str = NULL;
 		guint32 len;
-		len = mono_string_length (string_obj);
-		str = g_utf16_to_ucs4 (mono_string_chars (string_obj), len,
-			NULL, NULL, NULL);
+		len = mono_string_length_fast (string_obj, TRUE);
+		str = mono_string_is_compact (string_obj)
+			? g_utf8_to_ucs4 (mono_string_bytes_fast (string_obj), len, NULL, NULL, NULL)
+			: g_utf16_to_ucs4 (mono_string_chars_fast (string_obj), len, NULL, NULL, NULL);
 		ret = sys_alloc_string_len_ms (str, len);
 		g_free(str);
 		return ret;

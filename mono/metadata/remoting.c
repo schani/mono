@@ -1983,7 +1983,9 @@ mono_marshal_xdomain_copy_value (MonoObject *val)
 	}
 	case MONO_TYPE_STRING: {
 		MonoString *str = (MonoString *) val;
-		return (MonoObject *) mono_string_new_utf16 (domain, mono_string_chars (str), mono_string_length (str));
+		if (mono_string_is_compact (str))
+			return (MonoObject *)mono_string_new (domain, mono_string_bytes_fast (str));
+		return (MonoObject *) mono_string_new_utf16 (domain, mono_string_chars_fast (str), mono_string_length (str));
 	}
 	case MONO_TYPE_ARRAY:
 	case MONO_TYPE_SZARRAY: {

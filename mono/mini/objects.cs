@@ -937,7 +937,8 @@ class Tests {
 	public static unsafe int test_0_pin_string () {
 		string x = "xxx";
 		fixed (char *c = x) {
-			if (*c != 'x')
+			// This relies on the compact encoding.
+			if ((char)*(byte*)c != 'x')
 				return 1;
 		}
 		return 0;

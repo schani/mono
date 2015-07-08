@@ -818,7 +818,7 @@ static MonoString *string_invariant_replace (MonoString *me,
 	while (i < srclen) {
 		if (0 == memcmp(src + i, oldstr, oldstrlen * sizeof(gunichar2))) {
 			if (ret == NULL) {
-				ret = mono_string_new_size( mono_domain_get (), newsize);
+				ret = mono_string_new_size( mono_domain_get (), newsize, MONO_ENCODING_UTF16);
 				dest = mono_string_chars(ret);
 				memcpy (dest, src, i * sizeof(gunichar2));
 			}

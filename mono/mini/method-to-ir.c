@@ -5299,7 +5299,7 @@ mini_emit_ldelema_1_ins (MonoCompile *cfg, MonoClass *klass, MonoInst *arr, Mono
 #endif
 
 	if (bcheck)
-		MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index2_reg);
+		MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index2_reg, FALSE);
 
 #if defined(TARGET_X86) || defined(TARGET_AMD64)
 	if (size == 1 || size == 2 || size == 4 || size == 8) {
@@ -5558,7 +5558,7 @@ emit_array_store (MonoCompile *cfg, MonoClass *klass, MonoInst **sp, gboolean sa
 			int offset = (mono_class_array_element_size (klass) * sp [1]->inst_c0) + MONO_STRUCT_OFFSET (MonoArray, vector);
 
 			if (safety_checks)
-				MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index_reg);
+				MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index_reg, FALSE);
 			EMIT_NEW_STORE_MEMBASE_TYPE (cfg, ins, &klass->byval_arg, array_reg, offset, sp [2]->dreg);
 		} else {
 			MonoInst *addr = mini_emit_ldelema_1_ins (cfg, klass, sp [0], sp [1], safety_checks);
@@ -5751,6 +5751,8 @@ mini_emit_inst_for_method (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSign
 			"System.Runtime.CompilerServices", "RuntimeHelpers");
 
 	if (cmethod->klass == mono_defaults.string_class) {
+		/* FIXME: Make these aware of the compact encoding. */
+#if 0
 		if (strcmp (cmethod->name, "get_Chars") == 0 && fsig->param_count + fsig->hasthis == 2) {
 			int dreg = alloc_ireg (cfg);
 			int index_reg = alloc_preg (cfg);
@@ -5762,7 +5764,7 @@ mini_emit_inst_for_method (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSign
 #else
 			index_reg = args [1]->dreg;
 #endif	
-			MONO_EMIT_BOUNDS_CHECK (cfg, args [0]->dreg, MonoString, length, index_reg);
+			MONO_EMIT_BOUNDS_CHECK (cfg, args [0]->dreg, MonoString, tagged_length, index_reg, TRUE);
 
 #if defined(TARGET_X86) || defined(TARGET_AMD64)
 			EMIT_NEW_X86_LEA (cfg, ins, args [0]->dreg, index_reg, 1, MONO_STRUCT_OFFSET (MonoString, chars));
@@ -5790,6 +5792,9 @@ mini_emit_inst_for_method (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSign
 			return ins;
 		} else 
 			return NULL;
+#else
+		return NULL;
+#endif
 	} else if (cmethod->klass == mono_defaults.object_class) {
 
 		if (strcmp (cmethod->name, "GetType") == 0 && fsig->param_count + fsig->hasthis == 1) {
@@ -5893,7 +5898,7 @@ mini_emit_inst_for_method (MonoCompile *cfg, MonoMethod *cmethod, MonoMethodSign
 	} else if (cmethod->klass == runtime_helpers_class) {
 
 		if (strcmp (cmethod->name, "get_OffsetToStringData") == 0 && fsig->param_count == 0) {
-			EMIT_NEW_ICONST (cfg, ins, MONO_STRUCT_OFFSET (MonoString, chars));
+			EMIT_NEW_ICONST (cfg, ins, MONO_STRUCT_OFFSET (MonoString, bytes));
 			return ins;
 		} else
 			return NULL;
@@ -6590,10 +6595,11 @@ inline static MonoInst*
 mini_redirect_call (MonoCompile *cfg, MonoMethod *method,  
 					MonoMethodSignature *signature, MonoInst **args, MonoInst *this_ins)
 {
+#if 0
 	if (method->klass == mono_defaults.string_class) {
 		/* managed string allocation support */
 		if (strcmp (method->name, "InternalAllocateStr") == 0 && !(mono_profiler_events & MONO_PROFILE_ALLOCATIONS) && !(cfg->opt & MONO_OPT_SHARED)) {
-			MonoInst *iargs [2];
+			MonoInst *iargs [3];
 			MonoVTable *vtable = mono_class_vtable (cfg->domain, method->klass);
 			MonoMethod *managed_alloc = NULL;
 
@@ -6604,11 +6610,13 @@ mini_redirect_call (MonoCompile *cfg, MonoMethod *method,
 			if (!managed_alloc)
 				return NULL;
 			EMIT_NEW_VTABLECONST (cfg, iargs [0], vtable);
-			iargs [1] = args [0];
+			iargs [2] = iargs [1] = args [0];
 			return mono_emit_method_call (cfg, managed_alloc, iargs, this_ins);
 		}
 	}
+#else
 	return NULL;
+#endif
 }
 
 static void
@@ -11470,7 +11478,7 @@ mono_method_to_ir (MonoCompile *cfg, MonoMethod *method, MonoBasicBlock *start_b
 				int index_reg = sp [1]->dreg;
 				int offset = (mono_class_array_element_size (klass) * sp [1]->inst_c0) + MONO_STRUCT_OFFSET (MonoArray, vector);
 
-				MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index_reg);
+				MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index_reg, FALSE);
 				EMIT_NEW_LOAD_MEMBASE_TYPE (cfg, ins, &klass->byval_arg, array_reg, offset);
 			} else {
 				addr = mini_emit_ldelema_1_ins (cfg, klass, sp [0], sp [1], TRUE);

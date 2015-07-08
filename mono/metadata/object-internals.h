@@ -165,15 +165,103 @@ struct _MonoArray {
 
 struct _MonoString {
 	MonoObject object;
-	int32_t length;
-	mono_unichar2 chars [MONO_ZERO_LEN_ARRAY];
+	uint32_t tagged_length;
+	char bytes [MONO_ZERO_LEN_ARRAY];
 };
+
+/* Keep in sync with String. */
+typedef enum MonoInternalEncoding {
+	MONO_ENCODING_UTF16,
+	MONO_ENCODING_ASCII
+} MonoInternalEncoding;
 
 #define mono_object_class(obj) (((MonoObject*)(obj))->vtable->klass)
 #define mono_object_domain(obj) (((MonoObject*)(obj))->vtable->domain)
 
+static inline gboolean
+mono_string_is_compact (MonoString *s)
+{
+	return s->tagged_length & 1;
+}
+
+#if 0
 #define mono_string_chars_fast(s) ((mono_unichar2*)(s)->chars)
-#define mono_string_length_fast(s) ((s)->length)
+#define mono_string_bytes_fast(s) ((s)->chars)
+#else
+
+static inline char *
+mono_string_bytes_fast (MonoString *s)
+{
+	g_assert (mono_string_is_compact (s));
+	return (s)->bytes;
+}
+
+static inline mono_unichar2 *
+mono_string_chars_fast (MonoString *s)
+{
+	g_assert (!mono_string_is_compact (s));
+	return (mono_unichar2 *)(s)->bytes;
+}
+
+#endif
+
+static inline mono_unichar2
+mono_string_char_at(MonoString *s, size_t i)
+{
+	return mono_string_is_compact (s)
+		? (mono_unichar2)mono_string_bytes_fast (s) [i]
+		: mono_string_chars_fast (s) [i];
+}
+
+/* The number of code points in the string, excluding the null terminator. */
+static inline int32_t
+mono_string_length_fast (MonoString *s, gboolean allow_compact)
+{
+	gboolean is_compact = mono_string_is_compact (s);
+	size_t length = s->tagged_length >> 1;
+	if (!allow_compact)
+		g_assert (!is_compact);
+#if 0
+	{
+		size_t i;
+		for (i = 0; i < length; ++i) {
+			if (is_compact) {
+				if (!s->bytes [i]) {
+					g_printerr ("%p has embedded nulls at index %d of %d\n", s, i, length);
+					g_assert_not_reached ();
+				}
+			} else {
+				g_assert (((mono_unichar2 *)s->bytes) [i]);
+			}
+		}
+	}
+#endif
+	return length;
+}
+
+/* The size in bytes of a string's character data, including the null terminator. */
+static inline int32_t
+mono_string_size_fast (MonoString *s)
+{
+	size_t length = mono_string_length_fast (s, TRUE);
+	return (length + 1) * (mono_string_is_compact (s) ? sizeof (char) : sizeof (mono_unichar2));
+}
+
+static inline void
+mono_string_set_length (MonoString *s, int32_t len, MonoInternalEncoding encoding)
+{
+	switch (encoding) {
+	case MONO_ENCODING_UTF16:
+		s->tagged_length = len << 1;
+		break;
+	case MONO_ENCODING_ASCII:
+		s->tagged_length = (len << 1) | 1;
+		break;
+	default:
+		g_print ("invalid encoding %d\n", (int)encoding);
+		g_assert_not_reached ();
+	}
+}
 
 #define mono_array_length_fast(array) ((array)->max_length)
 #define mono_array_addr_with_size_fast(array,size,index) ( ((char*)(array)->vector) + (size) * (index) )
@@ -1469,6 +1557,8 @@ mono_string_to_utf8_mp	(MonoMemPool *mp, MonoString *s, MonoError *error);
 char *
 mono_string_to_utf8_image (MonoImage *image, MonoString *s, MonoError *error);
 
+char *
+mono_string_to_external (MonoString *string);
 
 MonoArray*
 mono_array_clone_in_domain (MonoDomain *domain, MonoArray *array);

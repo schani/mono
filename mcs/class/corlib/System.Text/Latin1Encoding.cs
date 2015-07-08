@@ -252,7 +252,8 @@ internal class Latin1Encoding : Encoding
 		    return String.Empty;
 		unsafe {
 			fixed (byte* bytePtr = bytes) {
-				string s = string.FastAllocateString (count);
+				/* FIXME: This could use ASCII with a bit more cleverness. */
+				string s = string.FastAllocateString (count, String.ENCODING_UTF16);
 
 				fixed (char* charPtr = s) {
 					byte* currByte = bytePtr + index;

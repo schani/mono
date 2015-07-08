@@ -1564,9 +1564,9 @@ mono_emit_vector_ldelema (MonoCompile *cfg, MonoType *array_type, MonoInst *arr,
 	index3_reg = alloc_preg (cfg);
 
 	if (check_bounds) {
-		MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index2_reg);
+		MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index2_reg, FALSE);
 		MONO_EMIT_NEW_BIALU_IMM (cfg,  OP_PADD_IMM, index3_reg, index2_reg, 16 / size - 1);
-		MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index3_reg);
+		MONO_EMIT_BOUNDS_CHECK (cfg, array_reg, MonoArray, max_length, index3_reg, FALSE);
 	}
 
 	add_reg = alloc_preg (cfg);

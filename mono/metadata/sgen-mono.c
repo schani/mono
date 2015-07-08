@@ -1213,7 +1213,7 @@ create_allocator (int atype, gboolean slowpath)
 		/*
 		 * a string allocator method takes the args: (vtable, len)
 		 *
-		 * bytes = offsetof (MonoString, chars) + ((len + 1) * 2)
+		 * bytes = offsetof (MonoString, bytes) + ((len + 1) * 2)
 		 *
 		 * condition:
 		 *
@@ -1221,11 +1221,11 @@ create_allocator (int atype, gboolean slowpath)
 		 *
 		 * therefore:
 		 *
-		 * offsetof (MonoString, chars) + ((len + 1) * 2) <= INT32_MAX - (SGEN_ALLOC_ALIGN - 1)
-		 * len <= (INT32_MAX - (SGEN_ALLOC_ALIGN - 1) - offsetof (MonoString, chars)) / 2 - 1
+		 * offsetof (MonoString, bytes) + ((len + 1) * 2) <= INT32_MAX - (SGEN_ALLOC_ALIGN - 1)
+		 * len <= (INT32_MAX - (SGEN_ALLOC_ALIGN - 1) - offsetof (MonoString, bytes)) / 2 - 1
 		 */
 		mono_mb_emit_ldarg (mb, 1);
-		mono_mb_emit_icon (mb, (INT32_MAX - (SGEN_ALLOC_ALIGN - 1) - MONO_STRUCT_OFFSET (MonoString, chars)) / 2 - 1);
+		mono_mb_emit_icon (mb, (INT32_MAX - (SGEN_ALLOC_ALIGN - 1) - MONO_STRUCT_OFFSET (MonoString, bytes)) / 2 - 1);
 		pos = mono_mb_emit_short_branch (mb, MONO_CEE_BLE_UN_S);
 
 		mono_mb_emit_byte (mb, MONO_CUSTOM_PREFIX);
@@ -1237,7 +1237,7 @@ create_allocator (int atype, gboolean slowpath)
 		mono_mb_emit_icon (mb, 1);
 		mono_mb_emit_byte (mb, MONO_CEE_SHL);
 		//WE manually fold the above + 2 here
-		mono_mb_emit_icon (mb, MONO_STRUCT_OFFSET (MonoString, chars) + 2);
+		mono_mb_emit_icon (mb, MONO_STRUCT_OFFSET (MonoString, bytes) + 2);
 		mono_mb_emit_byte (mb, CEE_ADD);
 		mono_mb_emit_stloc (mb, size_var);
 	} else {
@@ -1308,6 +1308,8 @@ create_allocator (int atype, gboolean slowpath)
 		mono_mb_emit_icall (mb, mono_gc_alloc_vector);
 	} else if (atype == ATYPE_STRING) {
 		mono_mb_emit_ldarg (mb, 1);
+		
+		mono_mb_emit_icon (mb, MONO_ENCODING_UTF16);
 		mono_mb_emit_icall (mb, mono_gc_alloc_string);
 	} else {
 		g_assert_not_reached ();
@@ -1344,15 +1346,17 @@ create_allocator (int atype, gboolean slowpath)
 #else
 		mono_mb_emit_byte (mb, CEE_STIND_I4);
 #endif
-	} else 	if (atype == ATYPE_STRING) {
+	} else if (atype == ATYPE_STRING) {
 		/* need to set length and clear the last char */
-		/* s->length = len; */
+		/* s->tagged_length = len << 1; */
 		mono_mb_emit_ldloc (mb, p_var);
-		mono_mb_emit_icon (mb, MONO_STRUCT_OFFSET (MonoString, length));
+		mono_mb_emit_icon (mb, MONO_STRUCT_OFFSET (MonoString, tagged_length));
 		mono_mb_emit_byte (mb, MONO_CEE_ADD);
 		mono_mb_emit_ldarg (mb, 1);
+		mono_mb_emit_icon (mb, 1);
+		mono_mb_emit_byte (mb, MONO_CEE_SHL);
 		mono_mb_emit_byte (mb, MONO_CEE_STIND_I4);
-		/* s->chars [len] = 0; */
+		/* s->bytes [len] = 0; */
 		mono_mb_emit_ldloc (mb, p_var);
 		mono_mb_emit_ldloc (mb, size_var);
 		mono_mb_emit_icon (mb, 2);
@@ -1792,7 +1796,7 @@ mono_gc_alloc_array (MonoVTable *vtable, size_t size, uintptr_t max_length, uint
 }
 
 void*
-mono_gc_alloc_string (MonoVTable *vtable, size_t size, gint32 len)
+mono_gc_alloc_string (MonoVTable *vtable, size_t size, gint32 len, MonoInternalEncoding encoding)
 {
 	MonoString *str;
 	TLAB_ACCESS_INIT;
@@ -1805,7 +1809,7 @@ mono_gc_alloc_string (MonoVTable *vtable, size_t size, gint32 len)
 	str = (MonoString*)sgen_try_alloc_obj_nolock (vtable, size);
 	if (str) {
 		/*This doesn't require fencing since EXIT_CRITICAL_REGION already does it for us*/
-		str->length = len;
+		mono_string_set_length (str, len, encoding);
 		EXIT_CRITICAL_REGION;
 		goto done;
 	}
@@ -1820,7 +1824,7 @@ mono_gc_alloc_string (MonoVTable *vtable, size_t size, gint32 len)
 		return mono_gc_out_of_memory (size);
 	}
 
-	str->length = len;
+	mono_string_set_length (str, len, encoding);
 
 	UNLOCK_GC;
 
@@ -1838,20 +1842,23 @@ mono_gc_alloc_string (MonoVTable *vtable, size_t size, gint32 len)
 void
 mono_gc_set_string_length (MonoString *str, gint32 new_length)
 {
-	mono_unichar2 *new_end = str->chars + new_length;
+	g_assert (!mono_string_is_compact (str));
+
+	mono_unichar2 *new_end = mono_string_chars_fast (str) + new_length;
+	g_print ("set_string_length(%p, %d), chars == %p, new_end == %p\n", str, new_length, mono_string_chars_fast (str), new_end);
 
 	/* zero the discarded string. This null-delimits the string and allows
 	 * the space to be reclaimed by SGen. */
 
 	if (nursery_canaries_enabled () && sgen_ptr_in_nursery (str)) {
 		CHECK_CANARY_FOR_OBJECT ((GCObject*)str, TRUE);
-		memset (new_end, 0, (str->length - new_length + 1) * sizeof (mono_unichar2) + CANARY_SIZE);
+		memset (new_end, 0, (mono_string_length_fast (str, FALSE) - new_length + 1) * sizeof (mono_unichar2) + CANARY_SIZE);
 		memcpy (new_end + 1 , CANARY_STRING, CANARY_SIZE);
 	} else {
-		memset (new_end, 0, (str->length - new_length + 1) * sizeof (mono_unichar2));
+		memset (new_end, 0, (mono_string_length_fast (str, FALSE) - new_length + 1) * sizeof (mono_unichar2));
 	}
 
-	str->length = new_length;
+	mono_string_set_length (str, new_length, mono_string_is_compact (str) ? MONO_ENCODING_ASCII : MONO_ENCODING_UTF16);
 }
 
 /*

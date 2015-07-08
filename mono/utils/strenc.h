@@ -15,7 +15,8 @@
 
 extern MONO_API gunichar2 *mono_unicode_from_external (const gchar *in, gsize *bytes);
 extern MONO_API gchar *mono_utf8_from_external (const gchar *in);
-extern MONO_API gchar *mono_unicode_to_external (const gunichar2 *uni);
+extern MONO_API gchar *mono_utf16_to_external (const gunichar2 *uni);
+extern MONO_API gchar *mono_utf8_to_external (const gchar *utf8);
 extern MONO_API gboolean mono_utf8_validate_and_len (const gchar *source, glong* oLength, const gchar** oEnd);
 extern MONO_API gboolean mono_utf8_validate_and_len_with_bounds (const gchar *source, glong max_bytes, glong* oLength, const gchar** oEnd);
 

@@ -350,7 +350,7 @@ ves_icall_System_Security_Principal_WindowsIdentity_GetUserToken (MonoString *us
 	gchar *utf8_name;
 	gboolean result;
 
-	utf8_name = mono_unicode_to_external (mono_string_chars (username));
+	utf8_name = mono_string_to_external (username);
 
 #ifdef HAVE_GETPWNAM_R
 #ifdef _SC_GETPW_R_SIZE_MAX
@@ -535,7 +535,7 @@ ves_icall_System_Security_Principal_WindowsPrincipal_IsMemberOfGroupName (gpoint
 #else /* HOST_WIN32 */
 	gchar *utf8_groupname;
 
-	utf8_groupname = mono_unicode_to_external (mono_string_chars (group));
+	utf8_groupname = mono_string_to_external (group);
 	if (utf8_groupname) {
 		struct group *g = NULL;
 #ifdef HAVE_GETGRNAM_R
@@ -793,7 +793,7 @@ static gboolean
 IsProtected (MonoString *path, gint32 protection) 
 {
 	gboolean result = FALSE;
-	gchar *utf8_name = mono_unicode_to_external (mono_string_chars (path));
+	gchar *utf8_name = mono_string_to_external (path);
 	if (utf8_name) {
 		struct stat st;
 		if (stat (utf8_name, &st) == 0) {
@@ -809,7 +809,7 @@ static gboolean
 Protect (MonoString *path, gint32 file_mode, gint32 add_dir_mode)
 {
 	gboolean result = FALSE;
-	gchar *utf8_name = mono_unicode_to_external (mono_string_chars (path));
+	gchar *utf8_name = mono_string_to_external (path);
 	if (utf8_name) {
 		struct stat st;
 		if (stat (utf8_name, &st) == 0) {

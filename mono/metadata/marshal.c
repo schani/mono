@@ -1002,9 +1002,16 @@ mono_string_to_byvalwstr (gpointer dst, MonoString *src, int size)
 		return;
 	}
 
-	len = MIN (size, (mono_string_length (src)));
-	memcpy (dst, mono_string_chars (src), size * 2);
-	if (size <= mono_string_length (src))
+	len = MIN (size, (mono_string_length_fast (src, TRUE)));
+	if (mono_string_is_compact (src)) {
+		size_t i;
+		for (i = 0; i < size; ++i)
+			((gunichar2 *)dst) [i] = (gunichar2)mono_string_bytes_fast (src) [i];
+	} else {
+		memcpy (dst, mono_string_chars_fast (src), size * 2);
+	}
+
+	if (size <= mono_string_length_fast (src, TRUE))
 		len--;
 	*((gunichar2 *) dst + len) = 0;
 }
@@ -2305,8 +2312,6 @@ mono_marshal_get_ptr_to_stringbuilder_conv (MonoMethodPInvoke *piinfo, MonoMarsh
 static gboolean
 mono_marshal_need_free (MonoType *t, MonoMethodPInvoke *piinfo, MonoMarshalSpec *spec)
 {
-	MonoMarshalNative encoding;
-
 	switch (t->type) {
 	case MONO_TYPE_VALUETYPE:
 		/* FIXME: Optimize this */
@@ -2320,8 +2325,7 @@ mono_marshal_need_free (MonoType *t, MonoMethodPInvoke *piinfo, MonoMarshalSpec 
 		}
 		return FALSE;
 	case MONO_TYPE_STRING:
-		encoding = mono_marshal_get_string_encoding (piinfo, spec);
-		return (encoding == MONO_NATIVE_LPWSTR) ? FALSE : TRUE;
+		return TRUE;
 	default:
 		return FALSE;
 	}
@@ -9944,7 +9948,7 @@ mono_marshal_free_array (gpointer *ptr, int size)
 void *
 mono_marshal_string_to_utf16 (MonoString *s)
 {
-	return s ? mono_string_chars (s) : NULL;
+	return s ? mono_string_to_utf16 (s) : NULL;
 }
 
 static void *
@@ -9953,9 +9957,10 @@ mono_marshal_string_to_utf16_copy (MonoString *s)
 	if (s == NULL) {
 		return NULL;
 	} else {
-		gunichar2 *res = mono_marshal_alloc ((mono_string_length (s) * 2) + 2);
-		memcpy (res, mono_string_chars (s), mono_string_length (s) * 2);
-		res [mono_string_length (s)] = 0;
+		size_t length = mono_string_length_fast (s, TRUE);
+		gunichar2 *res = mono_marshal_alloc ((length + 1) * sizeof (gunichar2));
+		mono_string_copy_to_utf16 (s, res);
+		res [length] = 0;
 		return res;
 	}
 }
@@ -10308,13 +10313,13 @@ ves_icall_System_Runtime_InteropServices_Marshal_StringToHGlobalUni (MonoString 
 		return NULL;
 	else {
 #ifdef TARGET_WIN32
-		gunichar2 *res = ves_icall_System_Runtime_InteropServices_Marshal_AllocHGlobal 
-			((mono_string_length (string) + 1) * 2);
+		gunichar2 *res = ves_icall_System_Runtime_InteropServices_Marshal_AllocHGlobal
+			((mono_string_length_fast (string, TRUE) + 1) * sizeof (gunichar2));
 #else
-		gunichar2 *res = g_malloc ((mono_string_length (string) + 1) * 2);		
+		gunichar2 *res = g_malloc ((mono_string_length_fast (string, TRUE) + 1) * sizeof (gunichar2));
 #endif
-		memcpy (res, mono_string_chars (string), mono_string_length (string) * 2);
-		res [mono_string_length (string)] = 0;
+		mono_string_copy_to_utf16 (string, res);
+		res [mono_string_length_fast (string, TRUE)] = 0;
 		return res;
 	}
 }

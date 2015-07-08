@@ -639,16 +639,19 @@ add_mono_string_to_blob_cached (MonoDynamicImage *assembly, MonoString *str)
 	char *b = blob_size;
 	guint32 idx = 0, len;
 
-	len = str->length * 2;
+	len = mono_string_length_fast (str, FALSE) * 2;
 	mono_metadata_encode_value (len, b, &b);
 #if G_BYTE_ORDER != G_LITTLE_ENDIAN
 	{
-		char *swapped = g_malloc (2 * mono_string_length (str));
-		const char *p = (const char*)mono_string_chars (str);
-
-		swap_with_size (swapped, p, 2, mono_string_length (str));
-		idx = add_to_blob_cached (assembly, blob_size, b-blob_size, swapped, len);
-		g_free (swapped);
+		if (mono_string_is_compact (str)) {
+			g_assert_not_reached ();
+		} else {
+			char *swapped = g_malloc (2 * mono_string_length (str));
+			const char *p = (const char*)mono_string_chars (str);
+			swap_with_size (swapped, p, 2, mono_string_length (str));
+			idx = add_to_blob_cached (assembly, blob_size, b-blob_size, swapped, len);
+			g_free (swapped);
+		}
 	}
 #else
 	idx = add_to_blob_cached (assembly, blob_size, b-blob_size, (char*)mono_string_chars (str), len);
@@ -1973,19 +1976,27 @@ handle_enum:
 	case MONO_TYPE_STRING: {
 		MonoString *str = (MonoString*)val;
 		/* there is no signature */
-		len = str->length * 2;
+		len = mono_string_length_fast (str, TRUE) * sizeof (gunichar2);
 		mono_metadata_encode_value (len, b, &b);
 #if G_BYTE_ORDER != G_LITTLE_ENDIAN
 		{
-			char *swapped = g_malloc (2 * mono_string_length (str));
-			const char *p = (const char*)mono_string_chars (str);
-
-			swap_with_size (swapped, p, 2, mono_string_length (str));
+			gunichar2 *swapped = g_malloc (len);
+			/* FIXME: Avoid allocation. */
+			const gunichar2 *p = mono_string_to_utf16 (str);
+			swap_with_size ((char *)swapped, (const char *)p, 2, mono_string_length_fast (str, TRUE));
 			idx = add_to_blob_cached (assembly, blob_size, b-blob_size, swapped, len);
 			g_free (swapped);
+			g_free ((void *)p);
 		}
 #else
-		idx = add_to_blob_cached (assembly, blob_size, b-blob_size, (char*)mono_string_chars (str), len);
+		if (mono_string_is_compact (str)) {
+			/* FIXME: Avoid allocation. */
+			const gunichar2 *p = mono_string_to_utf16 (str);
+			idx = add_to_blob_cached (assembly, blob_size, b-blob_size, (char*)p, len);
+			g_free ((void *)p);
+		} else {
+			idx = add_to_blob_cached (assembly, blob_size, b-blob_size, (char*)mono_string_chars_fast (str), len);
+		}
 #endif
 
 		g_free (buf);
@@ -4952,19 +4963,27 @@ mono_image_insert_string (MonoReflectionModuleBuilder *module, MonoString *str)
 	assembly = module->dynamic_image;
 	
 	if (assembly->save) {
-		mono_metadata_encode_value (1 | (str->length * 2), b, &b);
+		mono_metadata_encode_value (1 | (mono_string_length_fast (str, TRUE) * sizeof (gunichar2)), b, &b);
 		idx = mono_image_add_stream_data (&assembly->us, buf, b-buf);
 #if G_BYTE_ORDER != G_LITTLE_ENDIAN
-	{
-		char *swapped = g_malloc (2 * mono_string_length (str));
-		const char *p = (const char*)mono_string_chars (str);
-
-		swap_with_size (swapped, p, 2, mono_string_length (str));
-		mono_image_add_stream_data (&assembly->us, swapped, str->length * 2);
-		g_free (swapped);
-	}
+		{
+			gunichar2 *swapped = g_malloc (mono_string_length_fast (str, TRUE) * sizeof (gunichar2));
+			/* FIXME: Avoid allocation. */
+			const gunichar2 *p = (const char*)mono_string_to_utf16 (str);
+			swap_with_size ((char*)swapped, (const char *)p, 2, mono_string_length_fast (str, TRUE));
+			mono_image_add_stream_data (&assembly->us, swapped, mono_string_length_fast (str, TRUE) * sizeof (gunichar2));
+			g_free (swapped);
+			g_free ((void *)p);
+		}
 #else
-		mono_image_add_stream_data (&assembly->us, (const char*)mono_string_chars (str), str->length * 2);
+		if (mono_string_is_compact (str)) {
+			/* FIXME: Avoid allocation. */
+			const gunichar2 *p = mono_string_to_utf16 (str);
+			mono_image_add_stream_data (&assembly->us, (const char *)p, mono_string_length_fast (str, TRUE) * sizeof (gunichar2));
+			g_free ((void *)p);
+		} else {
+			mono_image_add_stream_data (&assembly->us, (const char *)mono_string_chars_fast (str), mono_string_length_fast (str, TRUE) * sizeof (gunichar2));
+		}
 #endif
 		mono_image_add_stream_data (&assembly->us, "", 1);
 	} else {
