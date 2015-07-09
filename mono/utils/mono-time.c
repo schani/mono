@@ -92,6 +92,7 @@ mono_100ns_datetime (void)
 #include <mach/mach_init.h>
 #include <mach/thread_act.h>
 #include <mach/mach_port.h>
+#include <pthread.h>
 #endif
 
 #include <time.h>
@@ -190,11 +191,14 @@ mono_thread_cpu_time (void)
 	return ts.tv_sec * 10000000 + ts.tv_nsec/100;
 #elif defined(PLATFORM_MACOSX)
 	mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+	thread_port_t port = mach_thread_self ();
 	thread_basic_info_data_t info;
 
-	if (thread_info (pthread_mach_thread_np(pthread_self()), THREAD_BASIC_INFO,
-			 (thread_info_t) &info, &count) != KERN_SUCCESS)
-		g_assert (0);
+	if (thread_info (port, THREAD_BASIC_INFO, (thread_info_t) &info, &count) != KERN_SUCCESS)
+		g_assert_not_reached ();
+
+	if (mach_port_deallocate (mach_task_self (), port) != KERN_SUCCESS)
+		g_assert_not_reached ();
 
 	return info.user_time.seconds * 10000000 + info.user_time.microseconds * 10 +
 	       info.system_time.seconds * 10000000 + info.system_time.microseconds * 10;
