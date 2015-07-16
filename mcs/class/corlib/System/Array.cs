@@ -953,7 +953,7 @@ namespace System
 
 			// re-ordered to avoid possible integer overflow
 			if (source_pos > sourceArray.Length - length)
-				throw new ArgumentException ("length");
+				throw new ArgumentException ("length=" + length.ToString() + ",source_pos=" + source_pos.ToString() + ",sourceArray.Length=" + sourceArray.Length.ToString() + ",destinationArray.Length=" + destinationArray.Length.ToString());
 
 			if (dest_pos > destinationArray.Length - length) {
 				string msg = "Destination array was not long enough. Check " +

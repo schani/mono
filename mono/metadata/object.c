@@ -46,7 +46,9 @@
 #include <mono/sgen/sgen-conf.h>
 #include "cominterop.h"
 
-#ifdef HEAVY_STATISTICS
+#include <xmmintrin.h>
+
+/* #ifdef HEAVY_STATISTICS */
 static guint64 stat_strings_allocated_compact = 0;
 static guint64 stat_strings_allocated_non_compact = 0;
 static guint64 stat_string_chars_allocated_compact = 0;
@@ -54,7 +56,7 @@ static guint64 stat_string_bytes_allocated_compact = 0;
 static guint64 stat_string_chars_allocated_non_compact = 0;
 static guint64 stat_string_bytes_allocated_non_compact = 0;
 static gboolean string_counters_inited = FALSE;
-#endif
+/* #endif */
 
 static void
 get_default_field_value (MonoDomain* domain, MonoClassField *field, void *value);
@@ -4972,7 +4974,7 @@ mono_array_new_specific (MonoVTable *vtable, uintptr_t n)
 
 #define ENABLE_COMPACT_ENCODING 1
 
-#ifdef HEAVY_STATISTICS
+/* #ifdef HEAVY_STATISTICS */
 static void
 init_string_counters ()
 {
@@ -4984,42 +4986,104 @@ init_string_counters ()
 	mono_counters_register ("String bytes allocated non-compact", MONO_COUNTER_GC | MONO_COUNTER_ULONG, &stat_string_bytes_allocated_non_compact);
 	string_counters_inited = TRUE;
 }
-#endif
+/* #endif */
 
 static MonoInternalEncoding
 mono_string_infer_encoding_utf8 (const char *text, size_t length)
 {
 #if ENABLE_COMPACT_ENCODING
-	MonoInternalEncoding encoding = MONO_ENCODING_ASCII;
 	const char *p = text;
-	while (length--) {
-		if ((unsigned char)(*p++) & 0x80) {
-			encoding = MONO_ENCODING_UTF16;
-			break;
-		}			
+	guint64 mask64 = 0x8080808080808080ULL;
+	guint32 mask32 = 0x80808080UL;
+	guint16 mask16 = 0x8080;
+	while (length >= 4) {
+		if (*(const guint64 *)p & mask64)
+			return MONO_ENCODING_UTF16;
+		p += sizeof (guint64);
+		length -= 4;
 	}
+	while (length >= 2) {
+		if (*(const guint32 *)p & mask32)
+			return MONO_ENCODING_UTF16;
+		p += sizeof (guint32);
+		length -= 2;
+	}
+	if (length == 1 && (*(const guint16 *)p & mask16))
+		return MONO_ENCODING_UTF16;
+	return MONO_ENCODING_ASCII;
 #else
-	MonoInternalEncoding encoding = MONO_ENCODING_UTF16;
+	return MONO_ENCODING_UTF16;
 #endif
-	return encoding;
 }
 
-static MonoInternalEncoding
+MonoInternalEncoding
 mono_string_infer_encoding_utf16 (const guint16 *text, size_t length)
 {
 #if ENABLE_COMPACT_ENCODING
-	MonoInternalEncoding encoding = MONO_ENCODING_ASCII;
-	const guint16 *p = text;
-	while (length--) {
-		if (*p++ > (guint16)0x7F) {
-			encoding = MONO_ENCODING_UTF16;
-			break;
+#if BYTE_ORDER == G_LITTLE_ENDIAN
+#if 0
+    __attribute__ ((aligned (16))) const guint32 mask32x4 []
+		= { 0xFF80FF80ULL, 0xFF80FF80ULL, 0xFF80FF80ULL, 0xFF80FF80ULL };
+#else
+    __attribute__ ((aligned (16))) const guint32 mask32x4 []
+		= { 0x80FF80FFULL, 0x80FF80FFULL, 0x80FF80FFULL, 0x80FF80FFULL };
+#endif
+	const __m128i mask128 = _mm_load_si128 ((const __m128i *)mask32x4);
+	const guint64 mask64 = 0xFF80FF80FF80FF80ULL;
+	const guint32 mask32 = 0xFF80FF80UL;
+	const guint16 mask16 = 0xFF80;
+#else
+#if 0
+    __attribute__ ((aligned (16))) const guint32 mask32x4 []
+		= { 0x80FF80FFULL, 0x80FF80FFULL, 0x80FF80FFULL, 0x80FF80FFULL };
+#else
+    __attribute__ ((aligned (16))) const guint32 mask32x4 []
+		= { 0xFF80FF80ULL, 0xFF80FF80ULL, 0xFF80FF80ULL, 0xFF80FF80ULL };
+#endif
+	const __m128i mask128 = _mm_load_si128 ((const __m128i *)mask32x4);
+	const guint64 mask64 = 0x80FF80FF80FF80FFULL;
+	const guint32 mask32 = 0x80FF80FFUL;
+	const guint16 mask16 = 0x80FF;
+#endif
+	const char *p = (const char *)text;
+#if 1
+	if (length >= 8) {
+		/* Get to a 16-byte boundary. */
+		while ((uintptr_t)p & 0xF) {
+			if (G_UNLIKELY ((*(const guint16 *)p & mask16)))
+				return MONO_ENCODING_UTF16;
+			p += sizeof (guint16);
+			length -= 1;
+		}
+		while (length >= 8) {
+			__m128i zero = _mm_setzero_si128 ();
+			if (G_UNLIKELY (_mm_movemask_epi8 (_mm_cmpeq_epi32 (_mm_and_si128 (*(const __m128i *)p, mask128), zero)) == 0xFFFF)) {
+				g_print (".");
+				return MONO_ENCODING_UTF16;
+			}
+			p += sizeof (__m128i);
+			length -= 8;
 		}
 	}
-#else
-	MonoInternalEncoding encoding = MONO_ENCODING_UTF16;
 #endif
-	return encoding;
+	while (length >= 4) {
+		if (G_UNLIKELY (*(const guint64 *)p & mask64))
+			return MONO_ENCODING_UTF16;
+		p += sizeof (guint64);
+		length -= 4;
+	}
+	while (length >= 2) {
+		if (G_UNLIKELY (*(const guint32 *)p & mask32))
+			return MONO_ENCODING_UTF16;
+		p += sizeof (guint32);
+		length -= 2;
+	}
+	if (length == 1 && G_UNLIKELY ((*(const guint16 *)p & mask16)))
+		return MONO_ENCODING_UTF16;
+	return MONO_ENCODING_ASCII;
+#else
+	return MONO_ENCODING_UTF16;
+#endif
 }
 
 /**
@@ -5110,31 +5174,49 @@ mono_string_new_size (MonoDomain *domain, gint32 len, int32_t encoding)
 	size_t size;
 	size_t max_len;
 
-#ifdef HEAVY_STATISTICS
+/* #ifdef HEAVY_STATISTICS */
 	if (!string_counters_inited)
 		init_string_counters ();
 	switch (encoding) {
 	case MONO_ENCODING_ASCII:
-		HEAVY_STAT (++stat_strings_allocated_compact);
+		/* HEAVY_STAT ( */
+			++stat_strings_allocated_compact
+			/* ) */
+				;
 		break;
 	case MONO_ENCODING_UTF16:
-		HEAVY_STAT (++stat_strings_allocated_non_compact);
+		/* HEAVY_STAT ( */
+			++stat_strings_allocated_non_compact
+			/* ) */
+			;
 		break;
 	}
-#endif
+/* #endif */
 
 	switch (encoding) {
 	case MONO_ENCODING_UTF16:
 		size = G_STRUCT_OFFSET (MonoString, bytes) + (((size_t)len + 1) * sizeof (gunichar2));
 		max_len = (SIZE_MAX - G_STRUCT_OFFSET (MonoString, bytes) - 8) / sizeof (gunichar2);
-		HEAVY_STAT (stat_string_chars_allocated_non_compact += len);
-		HEAVY_STAT (stat_string_bytes_allocated_non_compact += size);
+		/* HEAVY_STAT ( */
+			stat_string_chars_allocated_non_compact += len
+			/* ) */
+				;
+		/* HEAVY_STAT ( */
+			stat_string_bytes_allocated_non_compact += size
+			/* ) */
+				;
 		break;
 	case MONO_ENCODING_ASCII:
-		size = G_STRUCT_OFFSET (MonoString, bytes) + (((size_t)len + 1) * sizeof (char));
+		size = G_STRUCT_OFFSET (MonoString, bytes) + (size_t)len + 1;
 		max_len = (SIZE_MAX - G_STRUCT_OFFSET (MonoString, bytes) - 8);
-		HEAVY_STAT (stat_string_chars_allocated_compact += len);
-		HEAVY_STAT (stat_string_bytes_allocated_compact += size);
+		/* HEAVY_STAT ( */
+			stat_string_chars_allocated_compact += len
+			/* ) */
+			;
+		/* HEAVY_STAT ( */
+			stat_string_bytes_allocated_compact += size
+			/* ) */
+			;
 		break;
 	default:
 		g_assert_not_reached ();

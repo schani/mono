@@ -39,7 +39,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.ConstrainedExecution;
 using System.Runtime.Versioning;
 using System.Text;
-using System.Diagnostics.Contracts;
 
 namespace System
 {
@@ -60,30 +59,20 @@ namespace System
 			get { return (m_taggedStringLength & 1) != 0; }
 		}
 
-		private static int SelectEncoding(bool compact)
+		internal static int SelectEncoding(bool compact)
 		{
 			return compact ? ENCODING_ASCII : ENCODING_UTF16;
 		}
 
-		private bool CompactRepresentable(char value)
+		internal static bool CompactRepresentable(char value)
 		{
 			return (int)value <= 0x7F;
 		}
 
-		private bool CompactRepresentable(char [] value)
+		internal static unsafe bool CompactRepresentable(char [] value)
 		{
-			for (int i = 0; i < value.Length; ++i)
-				if (!CompactRepresentable(value[i]))
-					return false;
-			return true;
-		}
-
-		private unsafe bool CompactRepresentable(char* value, int length)
-		{
-			for (int i = 0; i < length; ++i)
-				if (!CompactRepresentable(value[i]))
-					return false;
-			return true;
+			fixed (char* p = value)
+				return CompactRepresentable(p, value.Length);
 		}
 
 		internal static unsafe int CompareOrdinalUnchecked (String strA, int indexA, int lenA, String strB, int indexB, int lenB)
@@ -761,6 +750,9 @@ namespace System
 
 		[MethodImplAttribute (MethodImplOptions.InternalCall)]
 		private extern static string InternalIntern (string str);
+
+		[MethodImplAttribute (MethodImplOptions.InternalCall)]
+		internal extern static unsafe bool CompactRepresentable (char* value, int length);
 
 		internal static unsafe void CharCopy (char *dest, char *src, int count) {
 			// Same rules as for memcpy, but with the premise that 

@@ -178,15 +178,17 @@ typedef enum MonoInternalEncoding {
 #define mono_object_class(obj) (((MonoObject*)(obj))->vtable->klass)
 #define mono_object_domain(obj) (((MonoObject*)(obj))->vtable->domain)
 
+MonoInternalEncoding mono_string_infer_encoding_utf16 (const guint16 *text, size_t length);
+
 static inline gboolean
 mono_string_is_compact (MonoString *s)
 {
 	return s->tagged_length & 1;
 }
 
-#if 0
-#define mono_string_chars_fast(s) ((mono_unichar2*)(s)->chars)
-#define mono_string_bytes_fast(s) ((s)->chars)
+#if 1
+#define mono_string_chars_fast(s) ((mono_unichar2*)(s)->bytes)
+#define mono_string_bytes_fast(s) ((s)->bytes)
 #else
 
 static inline char *

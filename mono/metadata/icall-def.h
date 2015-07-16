@@ -834,9 +834,10 @@ ICALL(STRING_5, ".ctor(char[],int,int)", ves_icall_System_String_ctor_RedirectTo
 ICALL(STRING_6, ".ctor(sbyte*)", ves_icall_System_String_ctor_RedirectToCreateString)
 ICALL(STRING_7, ".ctor(sbyte*,int,int)", ves_icall_System_String_ctor_RedirectToCreateString)
 ICALL(STRING_8, ".ctor(sbyte*,int,int,System.Text.Encoding)", ves_icall_System_String_ctor_RedirectToCreateString)
-ICALL(STRING_9, "FastAllocateString", ves_icall_System_String_InternalAllocateStr)
-ICALL(STRING_10, "InternalIntern", ves_icall_System_String_InternalIntern)
-ICALL(STRING_11, "InternalIsInterned", ves_icall_System_String_InternalIsInterned)
+ICALL(STRING_9, "CompactRepresentable", ves_icall_System_String_CompactRepresentable)
+ICALL(STRING_10, "FastAllocateString", ves_icall_System_String_InternalAllocateStr)
+ICALL(STRING_11, "InternalIntern", ves_icall_System_String_InternalIntern)
+ICALL(STRING_12, "InternalIsInterned", ves_icall_System_String_InternalIsInterned)
 
 ICALL_TYPE(TENC, "System.Text.EncodingHelper", TENC_1)
 ICALL(TENC_1, "InternalCodePage", ves_icall_System_Text_EncodingHelper_InternalCodePage)

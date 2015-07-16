@@ -530,8 +530,9 @@ namespace System.IO {
 			if (path == null || path.Length == 0)
 				return false;
 
-			if (path.IndexOfAny (InvalidPathChars) != -1)
-				throw new ArgumentException ("Illegal characters in path.");
+			var index = path.IndexOfAny (InvalidPathChars);
+			if (index != -1)
+				throw new ArgumentException ("Illegal character at index " + index.ToString() + " in " + (path.IsCompact ? "compact" : "non-compact") + " path of length " + path.Length.ToString() + ": \"" + path + "\"");
 
 			char c = path [0];
 			return (c == DirectorySeparatorChar 	||

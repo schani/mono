@@ -2642,10 +2642,10 @@ mono_invoke_unhandled_exception_hook (MonoObject *exc)
 	if (unhandled_exception_hook) {
 		unhandled_exception_hook (exc, unhandled_exception_hook_data);
 	} else {
-		MonoObject *other = NULL;
-		MonoString *str = mono_object_to_string (exc, &other);
+		/* MonoObject *other = NULL; */
+		/* MonoString *str = mono_object_to_string (exc, &other); */
 		char *msg = NULL;
-		
+/*
 		if (str)
 			msg = mono_string_to_utf8 (str);
 		else if (other) {
@@ -2660,8 +2660,14 @@ mono_invoke_unhandled_exception_hook (MonoObject *exc)
 		} else {
 			msg = g_strdup ("Nested exception trying to figure out what went wrong");
 		}
-		mono_runtime_printf_err ("[ERROR] FATAL UNHANDLED EXCEPTION: %s", msg);
+*/
+		msg = mono_exception_get_managed_backtrace ((MonoException*)exc);
+		char *class_name = mono_string_to_utf8 (((MonoException*)exc)->class_name);
+		char *message = mono_string_to_utf8 (((MonoException*)exc)->message);
+		mono_runtime_printf_err ("[ERROR] FATAL UNHANDLED EXCEPTION: %s(%s) %s", class_name, message, msg);
 		g_free (msg);
+		g_free (class_name);
+		g_free (message);
 #if defined(HOST_IOS)
 		g_assertion_message ("Terminating runtime due to unhandled exception");
 #else

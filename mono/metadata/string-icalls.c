@@ -19,6 +19,7 @@
 #include <mono/metadata/tabledefs.h>
 #include <mono/metadata/loader.h>
 #include <mono/metadata/object.h>
+#include <mono/metadata/object-internals.h>
 #include <mono/metadata/exception.h>
 #include <mono/metadata/debug-helpers.h>
 #include <mono/metadata/profiler.h>
@@ -31,6 +32,11 @@ void
 ves_icall_System_String_ctor_RedirectToCreateString (void)
 {
 	g_assert_not_reached ();
+}
+
+MonoBoolean
+ves_icall_System_String_CompactRepresentable (const guint16 *const str, const gint32 length) {
+	return mono_string_infer_encoding_utf16 (str, length) == MONO_ENCODING_ASCII;
 }
 
 MonoString *
