@@ -59,7 +59,8 @@ MAKE_Q=$(if $(V),,-s)
 do-profile-check: $(depsdir)/.stamp
 	@ok=:; \
 	rm -f $(PROFILE_EXE) $(PROFILE_OUT); \
-	$(MAKE) $(MAKE_Q) $(PROFILE_OUT) || ok=false; \
+	$(MAKE) $(MAKE_Q) $(PROFILE_OUT); status="$$?"; \
+    if ! $$status; then echo "Failed: $$status"; ok=false; fi; \
 	if $$ok; then rm -f $(PROFILE_EXE) $(PROFILE_OUT); else \
 	    if test -f $(MONOLITE_MCS); then \
 		$(MAKE) -s do-profile-check-monolite ; \
