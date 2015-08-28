@@ -205,8 +205,10 @@ forget_stuck_regions (void)
 		g_print (" %p", *q);
 	g_print ("\n");
 #endif
-	if (begin == end)
+	if (begin == end) {
+		// g_print ("*** nulling stuck because forgetting regions\n");
 		TLAB_STUCK = NULL;
+	}
 	TLAB_REGIONS_END = end;
 	return forgotten;
 }
@@ -246,11 +248,11 @@ mono_gc_stick_region_if_necessary (gpointer src, gpointer dst)
 	if (!sgen_ptr_in_tlab (src))
 		goto end;
 	if (!TLAB_REGIONS_BEGIN || TLAB_REGIONS_END == TLAB_REGIONS_BEGIN) {
-		SGEN_ASSERT (0, !TLAB_STUCK, "Region info was not cleared correctly");
+		SGEN_ASSERT (0, !TLAB_STUCK, "Region info was not cleared correctly (stuck = %p, regions_begin = %p, regions_end = %p)", TLAB_STUCK, TLAB_REGIONS_BEGIN, TLAB_REGIONS_END);
 		goto end;
 	}
 	if (TLAB_STUCK)
-		SGEN_ASSERT (0, sgen_ptr_in_tlab (TLAB_STUCK), "Region info was not cleared correctly");
+		SGEN_ASSERT (0, sgen_ptr_in_tlab (TLAB_STUCK), "Region info was not cleared correctly (stuck %p is not in %p-%p)", TLAB_STUCK, TLAB_START, TLAB_REAL_END);
 	gboolean major_to_minor = !sgen_ptr_in_nursery (dst);
 	gboolean old_tlab_to_new_tlab = !sgen_ptr_in_tlab (dst);
 	/* FIXME: This is too conservative; it should check whether region_of(dst) < region_of(src). */
@@ -270,10 +272,13 @@ mono_gc_stick_region_if_necessary (gpointer src, gpointer dst)
 #endif
 	if (major_to_minor || old_tlab_to_new_tlab || old_region_to_new_region || old_frame_to_new_frame || always_stick) {
 		char *stuck = TLAB_STUCK;
+/*
 		char *src_end = (char *)src + ALIGN_UP (sgen_safe_object_get_size (src));
 		SGEN_ASSERT (0, sgen_ptr_in_tlab (src_end - 1), "Stuck object should not extend beyond the end of a TLAB");
 		TLAB_STUCK = MAX (stuck, src_end);
 		SGEN_ASSERT (0, TLAB_STUCK <= TLAB_NEXT, "Why are we sticking an object that is not in the current region?");
+*/
+		TLAB_STUCK = MAX (stuck, TLAB_NEXT);
 		forget_stuck_regions ();
 		HEAVY_STAT (++stat_regions_stuck);
 #if 0
@@ -316,6 +321,7 @@ mono_gc_region_bail (void)
 	HEAVY_STAT (++stat_regions_bailed);
 	TLAB_REGIONS_END = TLAB_REGIONS_BEGIN;
 	TLAB_STUCK = NULL;
+	// g_print ("*** nulling stuck because bailing region\n");
 	sgen_gc_unlock ();
 }
 
@@ -360,6 +366,8 @@ mono_gc_region_enter (void)
 end:
 	sgen_gc_unlock ();
 }
+
+void describe_region (void *start, size_t size);
 
 void
 mono_gc_region_exit (gpointer ret)
@@ -409,6 +417,7 @@ mono_gc_region_exit (gpointer ret)
 	if (region_size) {
 #if 0
 		g_print ("clearing %lu bytes from %p to %p, start %p, next %p, stuck %p\n", region_size, region, region + region_size, TLAB_START, TLAB_NEXT, TLAB_STUCK);
+		describe_region (region, region_size);
 #endif
 #if 0
 		g_print ("clearing %lu bytes\n", region_size);
@@ -419,8 +428,10 @@ mono_gc_region_exit (gpointer ret)
 	/* Reset TLAB pointer. */
 	TLAB_NEXT = region;
 	--TLAB_REGIONS_END;
-	if (TLAB_REGIONS_BEGIN == TLAB_REGIONS_END)
+	if (TLAB_REGIONS_BEGIN == TLAB_REGIONS_END) {
+		/* g_print ("*** nulling stuck because exited last region\n"); */
 		TLAB_STUCK = NULL;
+	}
 end:
 	sgen_gc_unlock ();
 }
@@ -589,9 +600,10 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 				TLAB_REAL_END = TLAB_START + alloc_size;
 				TLAB_TEMP_END = TLAB_START + MIN (SGEN_SCAN_START_SIZE, alloc_size);
 				/* size_t capacity = TLAB_REGIONS_CAPACITY - TLAB_REGIONS_BEGIN; */
-				/* g_print ("*** resetting region info\n"); */
+				/* g_print ("*** resetting region info due to allocating a new TLAB (1)\n"); */
 				TLAB_REGIONS_END = TLAB_REGIONS_BEGIN;
 				TLAB_STUCK = NULL;
+				// g_print ("*** nulling stuck because allocated new TLAB\n");
 				/* memset (TLAB_REGIONS_BEGIN, 0, capacity * sizeof (*TLAB_REGIONS_BEGIN)); */
 
 				zero_tlab_if_necessary (TLAB_START, alloc_size);
@@ -599,8 +611,6 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 				/* Allocate from the TLAB */
 				p = (void*)TLAB_NEXT;
 				TLAB_NEXT += size;
-				if (mono_class_has_finalizer (vtable->klass))
-					TLAB_STUCK = TLAB_NEXT;
 				sgen_set_nursery_scan_start ((char*)p);
 			}
 		} else {
@@ -619,6 +629,13 @@ sgen_alloc_obj_nolock (GCVTable vtable, size_t size)
 		SGEN_LOG (6, "Allocated object %p, vtable: %p (%s), size: %zd", p, vtable, sgen_client_vtable_get_name (vtable), size);
 		binary_protocol_alloc (p, vtable, size, sgen_client_get_provenance ());
 		mono_atomic_store_seq (p, vtable);
+	}
+
+	if (mono_class_has_finalizer (vtable->klass)) {
+		/* g_print ("*** sticking region at %p because %s has a finalizer (1)\n", TLAB_NEXT, vtable->klass->name); */
+		mono_gc_stick_region_if_necessary (p, NULL);
+		/* TLAB_STUCK = TLAB_NEXT; */
+		/* mono_gc_region_bail (); */
 	}
 
 	return (GCObject*)p;
@@ -673,6 +690,7 @@ sgen_try_alloc_obj_nolock (GCVTable vtable, size_t size)
 				TLAB_TEMP_END = MIN (TLAB_REAL_END, TLAB_NEXT + SGEN_SCAN_START_SIZE);
 				SGEN_LOG (5, "Expanding local alloc: %p-%p", TLAB_NEXT, TLAB_TEMP_END);
 			}
+
 		} else if (available_in_tlab > SGEN_MAX_NURSERY_WASTE) {
 			/* Allocate directly from the nursery */
 			p = sgen_nursery_alloc (size);
@@ -689,16 +707,25 @@ sgen_try_alloc_obj_nolock (GCVTable vtable, size_t size)
 			if (!p)
 				return NULL;
 
+			/* g_print ("*** resetting region info due to allocating a new TLAB (2)\n"); */
 			TLAB_START = (char*)new_next;
 			TLAB_NEXT = new_next + size;
 			TLAB_REAL_END = new_next + alloc_size;
 			TLAB_TEMP_END = new_next + MIN (SGEN_SCAN_START_SIZE, alloc_size);
 			TLAB_REGIONS_END = TLAB_REGIONS_BEGIN;
-			TLAB_STUCK = mono_class_has_finalizer (vtable->klass) ? TLAB_NEXT : NULL;
+			TLAB_STUCK = NULL;
+			// g_print ("*** nulling stuck because allocated new TLAB\n");
 			sgen_set_nursery_scan_start ((char*)p);
 
 			zero_tlab_if_necessary (new_next, alloc_size);
 		}
+	}
+
+	if (mono_class_has_finalizer (vtable->klass)) {
+		/* g_print ("*** sticking region at %p because %s has a finalizer (2)\n", TLAB_NEXT, vtable->klass->name); */
+		mono_gc_stick_region_if_necessary (p, NULL);
+		/* TLAB_STUCK = TLAB_NEXT; */
+		/* mono_gc_region_bail (); */
 	}
 
 	HEAVY_STAT (++stat_objects_alloced);
@@ -840,6 +867,7 @@ sgen_clear_tlabs (void)
 		*info->tlab_real_end_addr = NULL;
 		info->tlab_regions_end = info->tlab_regions_begin;
 		info->tlab_stuck = NULL;
+		// g_print ("*** nulling stuck because clearing TLABs\n");
 	} END_FOREACH_THREAD
 }
 

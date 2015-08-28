@@ -43,6 +43,7 @@
 #define safe_object_get_size	sgen_safe_object_get_size
 
 void describe_ptr (char *ptr);
+void describe_region (char *start, size_t size);
 void check_object (GCObject *obj);
 
 /*
@@ -1233,6 +1234,24 @@ sgen_find_object_for_ptr (char *ptr)
 	found_obj = NULL;
 	major_collector.iterate_objects (ITERATE_OBJECTS_SWEEP_ALL, find_object_for_ptr_callback, ptr);
 	return found_obj;
+}
+
+void
+describe_region (char *start, size_t size)
+{
+	char *end = start + size;
+	while (start < end) {
+		GCVTable vtable = *(GCVTable *)start;
+		int i;
+		g_print ("%p: %s\n", start, vtable->klass->name);
+		mono_object_describe_fields ((MonoObject *)start);
+#if 0
+		for (i = 0; i < vtable->klass->field.count; ++i)
+			g_print ("%p:   %s\n", start + sizeof (GCObject) + vtable->klass->fields [i].offset, vtable->klass->fields [i].name);
+#endif
+		g_print ("----\n");
+		start += sgen_safe_object_get_size ((GCObject *)start);
+	}
 }
 
 #endif /*HAVE_SGEN_GC*/

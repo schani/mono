@@ -39,7 +39,7 @@ typedef mword SgenDescriptor;
  * Turning on heavy statistics will turn off the managed allocator and
  * the managed write barrier.
  */
-#define HEAVY_STATISTICS
+//#define HEAVY_STATISTICS
 
 #ifdef HEAVY_STATISTICS
 #define HEAVY_STAT(x)	x
@@ -66,7 +66,7 @@ typedef mword SgenDescriptor;
  * This extends the heavy binary protocol to record the provenance of an object
  * for every allocation.
  */
-//#define SGEN_OBJECT_PROVENANCE
+// #define SGEN_OBJECT_PROVENANCE
 
 /*
  * This enables checks whenever objects are enqueued in gray queues.
@@ -114,7 +114,7 @@ typedef mword SgenDescriptor;
 
 #ifndef SGEN_HEAVY_BINARY_PROTOCOL
 #ifndef HEAVY_STATISTICS
-#define MANAGED_ALLOCATION
+// #define MANAGED_ALLOCATION
 #ifndef XDOMAIN_CHECKS_IN_WBARRIER
 #define MANAGED_WBARRIER
 #endif

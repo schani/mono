@@ -11,7 +11,7 @@ my $stderr = $test.'.stderr';
 
 $output =~ s/\.exe$/.output/;
 
-my $timeout_in_minutes = 2;
+my $timeout_in_minutes = 5;
 
 my $test_binary = $test;
 
