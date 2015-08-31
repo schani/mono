@@ -59,17 +59,20 @@ MAKE_Q=$(if $(V),,-s)
 do-profile-check: $(depsdir)/.stamp
 	@ok=:; \
 	rm -f $(PROFILE_EXE) $(PROFILE_OUT); \
-	$(MAKE) $(MAKE_Q) $(PROFILE_OUT); status="$$?"; \
-    if ! $$status; then echo "Failed: $$status"; ok=false; fi; \
-	if $$ok; then rm -f $(PROFILE_EXE) $(PROFILE_OUT); else \
-	    if test -f $(MONOLITE_MCS); then \
-		$(MAKE) -s do-profile-check-monolite ; \
-	    else \
-		echo "*** The compiler '$(BOOTSTRAP_MCS)' doesn't appear to be usable." 1>&2; \
-                echo "*** You need Mono version 3.8 or better installed to build MCS" 1>&2 ; \
-                echo "*** Check mono README for information on how to bootstrap a Mono installation." 1>&2 ; \
-		echo "*** The version of '$(BOOTSTRAP_MCS)' is: `$(BOOTSTRAP_MCS) --version`." 1>&2 ; \
-	        exit 1; fi; fi
+	$(MAKE) $(MAKE_Q) $(PROFILE_OUT); \
+	rm -f $(PROFILE_EXE) $(PROFILE_OUT)
+
+# status="$$?"; \
+#     if ! $$status; then echo "Failed: $$status"; ok=false; fi; \
+# 	if $$ok; then ; else \
+# 	    if test -f $(MONOLITE_MCS); then \
+# 		$(MAKE) -s do-profile-check-monolite ; \
+# 	    else \
+# 		echo "*** The compiler '$(BOOTSTRAP_MCS)' doesn't appear to be usable." 1>&2; \
+#                 echo "*** You need Mono version 3.8 or better installed to build MCS" 1>&2 ; \
+#                 echo "*** Check mono README for information on how to bootstrap a Mono installation." 1>&2 ; \
+# 		echo "*** The version of '$(BOOTSTRAP_MCS)' is: `$(BOOTSTRAP_MCS) --version`." 1>&2 ; \
+# 	        exit 1; fi; fi
 
 
 ifdef use_monolite
