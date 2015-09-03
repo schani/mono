@@ -64,6 +64,11 @@ namespace System
 			return compact ? ENCODING_ASCII : ENCODING_UTF16;
 		}
 
+		internal int CharSize
+		{
+			get { return IsCompact ? sizeof(byte) : sizeof(char); }
+		}
+
 		internal static bool CompactRepresentable(char value)
 		{
 			return (int)value <= 0x7F;
@@ -73,6 +78,16 @@ namespace System
 		{
 			fixed (char* p = value)
 				return CompactRepresentable(p, value.Length);
+		}
+
+		internal unsafe bool CompactRepresentable()
+		{
+			if (IsCompact)
+				/* We could assert here that all strings that claim to be compact in fact are. */
+				return true;
+			/* TODO: Collect metrics on strings that could have been made compact. */
+			fixed (char* p = this)
+				return CompactRepresentable(p, Length);
 		}
 
 		internal static unsafe int CompareOrdinalUnchecked (String strA, int indexA, int lenA, String strB, int indexB, int lenB)
