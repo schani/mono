@@ -79,12 +79,13 @@ namespace System.Text {
 			m_IsCompact = value.IsCompact;
 
 			unsafe {
-				fixed (byte* chunkBytes = m_ChunkBytes)
 				fixed (char* valueChars = value) {
 					int charSize = value.CharSize;
 					m_ChunkBytes = new byte[capacity * charSize];
-					/* FIXME: Not thread-safe. */
-					Buffer.Memcpy(chunkBytes, (byte*)valueChars + startIndex * charSize, length * charSize);
+					fixed (byte* chunkBytes = m_ChunkBytes) {
+						/* FIXME: Not thread-safe. */
+						Buffer.Memcpy(chunkBytes, (byte*)valueChars + startIndex * charSize, length * charSize);
+					}
 				}
 			}
 
@@ -114,6 +115,7 @@ namespace System.Text {
 			m_IsCompact = true;
         }
 
+#if !MONO
 #if FEATURE_SERIALIZATION
         [System.Security.SecurityCritical]  // auto-generated
         private StringBuilder(SerializationInfo info, StreamingContext context) {
@@ -194,6 +196,12 @@ namespace System.Text {
             m_ChunkPrevious = null;
             VerifyClassInvariant();
         }
+#endif
+#else
+        [System.Security.SecurityCritical]  // auto-generated
+        private StringBuilder(SerializationInfo info, StreamingContext context) {
+			throw new NotImplementedException("StringBuilder(SerializationInfo,StreamingContext)");
+		}
 #endif
 
         [System.Diagnostics.Conditional("_DEBUG")]
