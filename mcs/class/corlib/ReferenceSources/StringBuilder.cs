@@ -386,7 +386,7 @@ namespace System.Text {
 								{
 									fixed (byte* sourceBytes = sourceArray)
 										/* It's safe to copy directly from the source array because
-										 * all chunks must be compact in order for the StringBuffer
+										 * all chunks must be compact in order for the StringBuilder
 										 * to be CompactRepresentable.
 										 */
 										Buffer.Memcpy(destBytes + curDestIndex, sourceBytes + chunkStartIndex, chunkCount);
@@ -613,60 +613,15 @@ namespace System.Text {
             return this;
         }
 
-#if !MONO
         // Appends a copy of this string at the end of this string builder.
         [System.Security.SecuritySafeCritical]  // auto-generated
         public StringBuilder Append(String value) {
             Contract.Ensures(Contract.Result<StringBuilder>() != null);
-
-            if (value != null) {
-                // This is a hand specialization of the 'AppendHelper' code below. 
-                // We could have just called AppendHelper.  
-                char[] chunkChars = m_ChunkChars;
-                int chunkLength = m_ChunkLength;
-                int valueLen = value.Length;
-                int newCurrentIndex = chunkLength + valueLen;
-                if (newCurrentIndex < chunkChars.Length)    // Use strictly < to avoid issue if count == 0, newIndex == length
-                {
-                    if (valueLen <= 2)
-                    {
-                        if (valueLen > 0)
-                            chunkChars[chunkLength] = value[0];
-                        if (valueLen > 1)
-                            chunkChars[chunkLength + 1] = value[1];
-                    }
-                    else
-                    {
-                        unsafe {
-                            fixed (char* valuePtr = value)
-                            fixed (char* destPtr = &chunkChars[chunkLength]) {
-#if MONO
-                                if (value.IsCompact) {
-                                    /* FIXME: Unroll. */
-                                    for (int i = 0; i < valueLen; ++i)
-                                        destPtr[i] = (char)((byte*)valuePtr)[i];
-                                } else
-#endif
-                                {
-                                    string.wstrcpy(destPtr, valuePtr, valueLen);
-                                }
-                            }
-                        }
-                    }
-                    m_ChunkLength = newCurrentIndex;
-                }
-                else
-                    AppendHelper(value);
-            }
+            if (value == null)
+				return this;
+			AppendHelper(value);
             return this;
         }
-#else
-        // Appends a copy of this string at the end of this string builder.
-        [System.Security.SecuritySafeCritical]  // auto-generated
-		public StringBuilder Append(String value) {
-			throw new NotImplementedException("Append(String)");
-		}
-#endif
 
 #if !MONO
         [System.Runtime.InteropServices.ComVisible(false)]
@@ -881,7 +836,8 @@ namespace System.Text {
                 int firstLength = ChunkCapacity - m_ChunkLength;
                 if (firstLength > 0)
                 {
-					fixed (byte* chunkBytes = m_ChunkBytes) {
+					fixed (byte* chunkBytes = m_ChunkBytes)
+					{
 						if (m_IsCompact) {
 							/* FIXME: Unroll. */
 							for (int i = 0; i < firstLength; ++i)
@@ -904,8 +860,9 @@ namespace System.Text {
 					if (m_IsCompact) {
 						/* FIXME: Unroll. */
 						for (int i = 0; i < restLength; ++i)
-							chunkBytes[firstLength + i] = (byte)(value + firstLength)[i];
+							chunkBytes[i] = (byte)value[firstLength + i];
 					} else {
+						/* FIXME: Not thread-safe. */
 						String.wstrcpy((char*)chunkBytes, value + firstLength, restLength);
 					}
 				}
@@ -915,7 +872,6 @@ namespace System.Text {
             return this;
         }
 
-#if !MONO
         /// <summary>
         /// Appends 'value' of length 'count' to the stringBuilder. 
         /// </summary>
@@ -927,38 +883,62 @@ namespace System.Text {
 
             // This case is so common we want to optimize for it heavily. 
             int newIndex = valueCount + m_ChunkLength;
-            if (newIndex <= m_ChunkChars.Length)
-            {
-                ThreadSafeCopy(value, m_ChunkChars, m_ChunkLength, valueCount);
-                m_ChunkLength = newIndex;
-            }
-            else
-            {
-                // Copy the first chunk
-                int firstLength = m_ChunkChars.Length - m_ChunkLength;
-                if (firstLength > 0)
-                {
-                    ThreadSafeCopy(value, m_ChunkChars, m_ChunkLength, firstLength);
-                    m_ChunkLength = m_ChunkChars.Length;
-                }
+			if (newIndex <= ChunkCapacity)
+			{
+				fixed (byte* chunkBytes = m_ChunkBytes) {
+					if (m_IsCompact) {
+						/* FIXME: Not thread-safe. */
+						Buffer.Memcpy(chunkBytes + m_ChunkLength, value, valueCount);
+					} else {
+						/* FIXME: Unroll. */
+						for (int i = 0; i < valueCount; ++i)
+							((char*)chunkBytes)[m_ChunkLength + i] = (char)value[i];
+					}
+					m_ChunkLength = newIndex;
+				}
+			}
+			else
+			{
+				// Copy the first chunk
+				int firstLength = ChunkCapacity - m_ChunkLength;
+				if (firstLength > 0)
+				{
+					fixed (byte* chunkBytes = m_ChunkBytes)
+					{
+						if (m_IsCompact) {
+							/* FIXME: Not thread-safe. */
+							Buffer.Memcpy(chunkBytes + m_ChunkLength, value, firstLength);
+						} else {
+							/* FIXME: Unroll. */
+							for (int i = 0; i < firstLength; ++i)
+								((char*)chunkBytes)[m_ChunkLength + i] = (char)value[i];
+						}
+						m_ChunkLength = ChunkCapacity;
+					}
+				}
 
-                // Expand the builder to add another chunk. 
-                int restLength = valueCount - firstLength;
-                ExpandByABlock(restLength);
-                Contract.Assert(m_ChunkLength == 0, "Expand did not make a new block");
+				// Expand the builder to add another chunk. 
+				int restLength = valueCount - firstLength;
+				ExpandByABlock(restLength);
+				Contract.Assert(m_ChunkLength == 0, "Expand did not make a new block");
 
-                // Copy the second chunk
-                ThreadSafeCopy(value + firstLength, m_ChunkChars, 0, restLength);
-                m_ChunkLength = restLength;
-            }
+				// Copy the second chunk
+				fixed (byte* chunkBytes = m_ChunkBytes) {
+					if (m_IsCompact) {
+						/* FIXME: Not thread-safe. */
+						Buffer.Memcpy(chunkBytes, value + firstLength, restLength);
+					} else {
+						/* FIXME: Unroll. */
+						for (int i = 0; i < restLength; ++i)
+							((char*)chunkBytes)[i] = (char)value[firstLength + i];
+					}
+				}
+				m_ChunkLength = restLength;
+			}
+
             VerifyClassInvariant();
             return this;
         }
-#else
-        internal unsafe StringBuilder Append(byte* value, int valueCount) {
-			throw new NotImplementedException("Append(byte*,int)");
-		}
-#endif
 
 #if !MONO
         /// <summary>
