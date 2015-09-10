@@ -115,7 +115,6 @@ namespace System.Text {
 			m_IsCompact = true;
         }
 
-#if !MONO
 #if FEATURE_SERIALIZATION
         [System.Security.SecurityCritical]  // auto-generated
         private StringBuilder(SerializationInfo info, StreamingContext context) {
@@ -196,12 +195,6 @@ namespace System.Text {
             m_ChunkPrevious = null;
             VerifyClassInvariant();
         }
-#endif
-#else
-        [System.Security.SecurityCritical]  // auto-generated
-        private StringBuilder(SerializationInfo info, StreamingContext context) {
-			throw new NotImplementedException("StringBuilder(SerializationInfo,StreamingContext)");
-		}
 #endif
 
         [System.Diagnostics.Conditional("_DEBUG")]
@@ -970,11 +963,9 @@ namespace System.Text {
                     for (; ; )
                     {
                         // Copy in the new string for the ith replacement
-#if MONO
 						if (value.IsCompact)
 							ReplaceInPlaceAtChunk(ref targetChunk, ref targetIndexInChunk, (byte*)valuePtr, value.Length);
 						else
-#endif
 							ReplaceInPlaceAtChunk(ref targetChunk, ref targetIndexInChunk, valuePtr, value.Length);
                         int gapStart = replacements[i] + removeCount;
                         i++;
@@ -1044,7 +1035,6 @@ namespace System.Text {
 		}
 #endif
 
-#if !MONO
         /// <summary>
         /// ReplaceInPlaceAtChunk is the logical equivalent of 'memcpy'.  Given a chunk and ann index in
         /// that chunk, it copies in 'count' characters from 'value' and updates 'chunk, and indexInChunk to 
@@ -1054,69 +1044,71 @@ namespace System.Text {
         [SecurityCritical]
         unsafe private void ReplaceInPlaceAtChunk(ref StringBuilder chunk, ref int indexInChunk, char* value, int count)
         {
-            if (count != 0)
-            {
-                for (; ; )
-                {
-                    int lengthInChunk = chunk.m_ChunkLength - indexInChunk;
-                    Contract.Assert(lengthInChunk >= 0, "index not in chunk");
+			if (!String.CompactRepresentable(value, count))
+				chunk.Degrade();
+			if (count == 0)
+				return;
+			while (true)
+			{
+				int lengthInChunk = chunk.m_ChunkLength - indexInChunk;
+				Contract.Assert(lengthInChunk >= 0, "index not in chunk");
 
-                    int lengthToCopy = Math.Min(lengthInChunk, count);
-                    ThreadSafeCopy(value, chunk.m_ChunkChars, indexInChunk, lengthToCopy);
+				int lengthToCopy = Math.Min(lengthInChunk, count);
+				fixed (byte* chunkBytes = chunk.m_ChunkBytes)
+					Buffer.Memcpy(chunkBytes, (byte*)value, lengthToCopy * chunk.CharSize);
 
-                    // Advance the index. 
-                    indexInChunk += lengthToCopy;
-                    if (indexInChunk >= chunk.m_ChunkLength)
-                    {
-                        chunk = Next(chunk);
-                        indexInChunk = 0;
-                    }
-                    count -= lengthToCopy;
-                    if (count == 0)
-                        break;
-                    value += lengthToCopy;
-                }
-            }
+				// Advance the index. 
+				indexInChunk += lengthToCopy;
+				if (indexInChunk >= chunk.m_ChunkLength)
+				{
+					chunk = Next(chunk);
+					indexInChunk = 0;
+				}
+				count -= lengthToCopy;
+				if (count == 0)
+					break;
+				value += lengthToCopy;
+			}
         }
-#else
-        unsafe private void ReplaceInPlaceAtChunk(ref StringBuilder chunk, ref int indexInChunk, char* value, int count) {
-			throw new NotImplementedException("ReplaceInPlaceAtChunk(StringBuilder&,int&,char*,int)");
-		}
-#endif
 
-#if !MONO
         [SecurityCritical]
         unsafe private void ReplaceInPlaceAtChunk(ref StringBuilder chunk, ref int indexInChunk, byte* value, int count)
         {
-            if (count != 0)
-            {
-                for (; ; )
-                {
-                    int lengthInChunk = chunk.m_ChunkLength - indexInChunk;
-                    Contract.Assert(lengthInChunk >= 0, "index not in chunk");
+			if (count == 0)
+				return;
+			while (true)
+			{
+				int lengthInChunk = chunk.m_ChunkLength - indexInChunk;
+				Contract.Assert(lengthInChunk >= 0, "index not in chunk");
 
-                    int lengthToCopy = Math.Min(lengthInChunk, count);
-                    ThreadSafeCopy(value, chunk.m_ChunkChars, indexInChunk, lengthToCopy);
+				int lengthToCopy = Math.Min(lengthInChunk, count);
+				fixed (byte* chunkBytes = chunk.m_ChunkBytes)
+				{
+					if (chunk.m_IsCompact)
+					{
+						Buffer.Memcpy(chunkBytes + indexInChunk, value, lengthToCopy);
+					}
+					else
+					{
+						/* FIXME: Unroll. */
+						for (int i = 0; i < lengthToCopy; ++i)
+							((char*)chunkBytes)[indexInChunk + i] = (char)value[i];
+					}
+				}
 
-                    // Advance the index. 
-                    indexInChunk += lengthToCopy;
-                    if (indexInChunk >= chunk.m_ChunkLength)
-                    {
-                        chunk = Next(chunk);
-                        indexInChunk = 0;
-                    }
-                    count -= lengthToCopy;
-                    if (count == 0)
-                        break;
-                    value += lengthToCopy;
-                }
-            }
+				// Advance the index. 
+				indexInChunk += lengthToCopy;
+				if (indexInChunk >= chunk.m_ChunkLength)
+				{
+					chunk = Next(chunk);
+					indexInChunk = 0;
+				}
+				count -= lengthToCopy;
+				if (count == 0)
+					break;
+				value += lengthToCopy;
+			}
         }
-#else
-        unsafe private void ReplaceInPlaceAtChunk(ref StringBuilder chunk, ref int indexInChunk, byte* value, int count) {
-			throw new NotImplementedException("ReplaceInPlaceAtChunk(StringBuilder&,int&,byte*,int)");
-		}
-#endif
 
 #if !MONO
          // Copies the source StringBuilder to the destination IntPtr memory allocated with len bytes.
@@ -1214,7 +1206,6 @@ namespace System.Text {
             VerifyClassInvariant();
         }
 
-#if !MONO
         /// <summary>
         /// Creates a gap of size 'count' at the logical offset (count of characters in the whole string
         /// builder) 'index'.  It returns the 'chunk' and 'indexInChunk' which represents a pointer to
@@ -1229,7 +1220,7 @@ namespace System.Text {
         /// current chunk (this is what it does most of the time anyway)
         /// </summary>
         [System.Security.SecuritySafeCritical]  // auto-generated
-        private void MakeRoom(int index, int count, out StringBuilder chunk, out int indexInChunk, bool doneMoveFollowingChars)
+        private unsafe void MakeRoom(int index, int count, out StringBuilder chunk, out int indexInChunk, bool dontMoveFollowingChars)
         {
             VerifyClassInvariant();
             Contract.Assert(count > 0, "Count must be strictly positive");
@@ -1248,38 +1239,55 @@ namespace System.Text {
             // Cool, we have some space in this block, and you don't have to copy much to get it, go ahead
             // and use it.  This happens typically  when you repeatedly insert small strings at a spot
             // (typically the absolute front) of the buffer.    
-            if (!doneMoveFollowingChars && chunk.m_ChunkLength <= DefaultCapacity * 2 && chunk.m_ChunkChars.Length - chunk.m_ChunkLength >= count)
+            if (!dontMoveFollowingChars && chunk.m_ChunkLength <= DefaultCapacity * 2 && chunk.ChunkCapacity - chunk.m_ChunkLength >= count)
             {
-                for (int i = chunk.m_ChunkLength; i > indexInChunk; )
-                {
-                    --i;
-                    chunk.m_ChunkChars[i + count] = chunk.m_ChunkChars[i];
-                }
+				if (chunk.m_IsCompact)
+				{
+					for (int i = chunk.m_ChunkLength; i > indexInChunk; )
+					{
+						--i;
+						chunk.m_ChunkBytes[i + count] = chunk.m_ChunkBytes[i];
+					}
+				}
+				else
+				{
+					fixed (byte* chunkBytes = chunk.m_ChunkBytes)
+					{
+						char* chunkChars = (char*)chunkBytes;
+						for (int i = chunk.m_ChunkLength; i > indexInChunk; )
+						{
+							--i;
+							chunkChars[i + count] = chunkChars[i];
+						}
+					}
+				}
                 chunk.m_ChunkLength += count;
                 return;
             }
 
             // Allocate space for the new chunk (will go before this one)
-            StringBuilder newChunk = new StringBuilder(Math.Max(count, DefaultCapacity), chunk.m_MaxCapacity, chunk.m_ChunkPrevious);
+            StringBuilder newChunk = new StringBuilder(Math.Max(count, DefaultCapacity), chunk.m_MaxCapacity, chunk.m_ChunkPrevious, chunk.m_IsCompact);
             newChunk.m_ChunkLength = count;
 
             // Copy the head of the buffer to the  new buffer. 
             int copyCount1 = Math.Min(count, indexInChunk);
             if (copyCount1 > 0)
             {
-                unsafe {
-                    fixed (char* chunkCharsPtr = chunk.m_ChunkChars) {
-                        ThreadSafeCopy(chunkCharsPtr, newChunk.m_ChunkChars, 0, copyCount1);
-    
-                        // Slide characters in the current buffer over to make room. 
-                        int copyCount2 = indexInChunk - copyCount1;
-                        if (copyCount2 >= 0)
-                        {
-                            ThreadSafeCopy(chunkCharsPtr + copyCount1, chunk.m_ChunkChars, 0, copyCount2);
-                            indexInChunk = copyCount2;
-                        }
-                    }
-                }
+				fixed (byte* chunkBytes = chunk.m_ChunkBytes)
+				fixed (byte* newChunkBytes = newChunk.m_ChunkBytes)
+				{
+					/* FIXME: Not thread-safe. */
+					Buffer.Memcpy(newChunkBytes, chunkBytes, copyCount1 * chunk.CharSize);
+
+					// Slide characters in the current buffer over to make room. 
+					int copyCount2 = indexInChunk - copyCount1;
+					if (copyCount2 >= 0)
+					{
+						/* FIXME: Not thread-safe. */
+						Buffer.Memcpy(chunkBytes, chunkBytes + copyCount1 * chunk.CharSize, copyCount2);
+						indexInChunk = copyCount2;
+					}
+				}
             }
 
             chunk.m_ChunkPrevious = newChunk;           // Wire in the new chunk
@@ -1292,33 +1300,22 @@ namespace System.Text {
 
             VerifyClassInvariant();
         }
-#else
-        [System.Security.SecuritySafeCritical]  // auto-generated
-        private void MakeRoom(int index, int count, out StringBuilder chunk, out int indexInChunk, bool doneMoveFollowingChars) {
-			throw new NotImplementedException("MakeRoom(int index, int count, out StringBuilder chunk, out int indexInChunk, bool doneMoveFollowingChars)");
-		}
-#endif
 
-#if !MONO
         /// <summary>
         ///  Used by MakeRoom to allocate another chunk.  
         /// </summary>
-        private StringBuilder(int size, int maxCapacity, StringBuilder previousBlock)
+        private StringBuilder(int size, int maxCapacity, StringBuilder previousBlock, bool isCompact)
         {
             Contract.Assert(size > 0, "size not positive");
             Contract.Assert(maxCapacity > 0, "maxCapacity not positive");
-            m_ChunkChars = new char[size];
+			m_IsCompact = isCompact;
+			m_ChunkBytes = new byte[CharSize];
             m_MaxCapacity = maxCapacity;
             m_ChunkPrevious = previousBlock;
             if (previousBlock != null)
                 m_ChunkOffset = previousBlock.m_ChunkOffset + previousBlock.m_ChunkLength;
             VerifyClassInvariant();
         }
-#else
-        private StringBuilder(int size, int maxCapacity, StringBuilder previousBlock) {
-			throw new NotImplementedException("StringBuilder(int size, int maxCapacity, StringBuilder previousBlock)");
-		}
-#endif
 
 #if !MONO
         /// <summary>
