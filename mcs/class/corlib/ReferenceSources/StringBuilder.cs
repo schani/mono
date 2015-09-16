@@ -111,6 +111,7 @@ namespace System.Text {
             }
 
             m_MaxCapacity = maxCapacity;
+			/* Optimistically allocate a compact chunk, degrading to non-compact if necessary. */
             m_ChunkBytes = new byte[capacity];
 			m_IsCompact = true;
         }
@@ -173,7 +174,7 @@ namespace System.Text {
             // Assign
             m_MaxCapacity = persistedMaxCapacity;
 			m_IsCompact = persistedString.CompactRepresentable();
-            m_ChunkBytes = new byte[persistedCapacity * (m_IsCompact ? sizeof(byte) : sizeof(char))];
+            m_ChunkBytes = new byte[persistedCapacity * CharSize];
 			unsafe {
 				fixed (byte* chunkBytes = m_ChunkBytes)
 				fixed (char* persistedChars = persistedString) {
@@ -491,21 +492,21 @@ namespace System.Text {
 						//
 						// previous    chunk       this
 						// +--------+  +--------+  +--------+
-						// |ABCDABCD|<-|ABCDABCD|<-|ABCD....|
+						// |ABCDEFGH|<-|IJKLMNOP|<-|QRST....|
 						// +--------+  +--------+  +--------+
 						//
 						// After:
 						//
 						// previous    this
 						// +--------+  +----------------+
-						// |ABCDABCD|<-|ABCD............|
+						// |ABCDEFGH|<-|IJKL............|
 						// +--------+  +----------------+
 
                         int newLen = originalCapacity - chunk.m_ChunkOffset;
 						int charSize = chunk.CharSize;
                         byte[] newArray = new byte[newLen * charSize];
 
-                        Contract.Assert(newLen > chunk.m_ChunkBytes.Length, "the new chunk should be larger than the one it is replacing");
+                        Contract.Assert(newLen > chunk.ChunkCapacity, "the new chunk should be larger than the one it is replacing");
 						
 						Array.Copy(chunk.m_ChunkBytes, newArray, chunk.m_ChunkLength * charSize);
                         m_ChunkBytes = newArray;
