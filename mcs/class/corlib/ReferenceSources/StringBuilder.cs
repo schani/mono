@@ -1002,12 +1002,11 @@ namespace System.Text {
 		}
 #endif
 
-#if !MONO
         /// <summary>
         /// Returns true if the string that is starts at 'chunk' and 'indexInChunk, and has a logical
         /// length of 'count' starts with the string 'value'. 
         /// </summary>
-        private bool StartsWith(StringBuilder chunk, int indexInChunk, int count, string value)
+        private unsafe bool StartsWith(StringBuilder chunk, int indexInChunk, int count, string value)
         {
             for (int i = 0; i < value.Length; i++)
             {
@@ -1022,19 +1021,16 @@ namespace System.Text {
                 }
 
                 // See if there no match, break out of the inner for loop
-                if (value[i] != chunk.m_ChunkChars[indexInChunk])
-                    return false;
+				/* FIXME: Don't do this in the loop. */
+				fixed (byte* chunkBytes = chunk.m_ChunkBytes)
+					if (value[i] != (chunk.m_IsCompact ? (char)chunkBytes[indexInChunk] : ((char*)chunkBytes)[indexInChunk]))
+						return false;
 
                 indexInChunk++;
                 --count;
             }
             return true;
         }
-#else
-        private bool StartsWith(StringBuilder chunk, int indexInChunk, int count, string value) {
-			throw new NotImplementedException("StartsWith");
-		}
-#endif
 
         /// <summary>
         /// ReplaceInPlaceAtChunk is the logical equivalent of 'memcpy'.  Given a chunk and ann index in
