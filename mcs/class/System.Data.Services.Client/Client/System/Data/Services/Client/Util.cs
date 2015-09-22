@@ -343,7 +343,7 @@ namespace System.Data.Services.Client
         {
             if (constructor == null)
             {
-                throw new MissingMethodException(type.FullName);
+                throw new MissingMethodException("in ConstructorInvoke");
             }
 #if ASTORIA_LIGHT
             int argumentCount = (arguments == null) ? 0 : arguments.Length;

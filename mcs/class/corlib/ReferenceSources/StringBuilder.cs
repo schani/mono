@@ -1,3 +1,6 @@
+#define DEBUG
+#define _DEBUG
+
 namespace System.Text {
 
     using System.Text;
@@ -13,9 +16,6 @@ namespace System.Text {
     using System.Diagnostics.Contracts;
 
 	public partial class StringBuilder {
-
-        internal byte[] m_ChunkBytes;
-		internal bool m_IsCompact;
 
 		internal int CharSize {
 			get { return m_IsCompact ? sizeof(byte) : sizeof(char); }
@@ -93,7 +93,11 @@ namespace System.Text {
 
         // Creates an empty StringBuilder with a minimum capacity of capacity
         // and a maximum capacity of maxCapacity.
-        public StringBuilder(int capacity, int maxCapacity) {
+        public StringBuilder(int capacity, int maxCapacity)
+			: this(capacity, maxCapacity, true) {
+        }
+
+		private StringBuilder(int capacity, int maxCapacity, bool isCompact) {
             if (capacity>maxCapacity) {
                 throw new ArgumentOutOfRangeException("capacity", Environment.GetResourceString("ArgumentOutOfRange_Capacity"));
             }
@@ -110,11 +114,10 @@ namespace System.Text {
                 capacity = Math.Min(DefaultCapacity, maxCapacity);
             }
 
+			m_IsCompact = isCompact;
             m_MaxCapacity = maxCapacity;
-			/* Optimistically allocate a compact chunk, degrading to non-compact if necessary. */
-            m_ChunkBytes = new byte[capacity];
-			m_IsCompact = true;
-        }
+            m_ChunkBytes = new byte[capacity * CharSize];
+		}
 
 #if FEATURE_SERIALIZATION
         [System.Security.SecurityCritical]  // auto-generated
@@ -209,8 +212,7 @@ namespace System.Text {
                 Contract.Assert(currentBlock.m_MaxCapacity == maxCapacity, "Bad maxCapacity");
                 Contract.Assert(currentBlock.m_ChunkBytes != null, "Empty Buffer");
 
-                Contract.Assert(currentBlock.m_ChunkLength <= currentBlock.m_ChunkBytes.Length, "Out of range length");
-				Contract.Assert(m_ChunkLength * CharSize == currentBlock.m_ChunkBytes.Length, "Out of range length");
+                Contract.Assert(currentBlock.m_ChunkLength * CharSize <= currentBlock.m_ChunkBytes.Length, "Out of range length");
                 Contract.Assert(currentBlock.m_ChunkLength >= 0, "Negative length");
                 Contract.Assert(currentBlock.m_ChunkOffset >= 0, "Negative offset");
 
@@ -934,7 +936,6 @@ namespace System.Text {
             return this;
         }
 
-#if !MONO
         /// <summary>
         /// 'replacements' is a list of index (relative to the begining of the 'chunk' to remove
         /// 'removeCount' characters and replace them with 'value'.   This routine does all those 
@@ -974,14 +975,18 @@ namespace System.Text {
                             break;
     
                         int gapEnd = replacements[i];
-                        Contract.Assert(gapStart < sourceChunk.m_ChunkChars.Length, "gap starts at end of buffer.  Should not happen");
+                        Contract.Assert(gapStart < sourceChunk.ChunkCapacity, "gap starts at end of buffer.  Should not happen");
                         Contract.Assert(gapStart <= gapEnd, "negative gap size");
                         Contract.Assert(gapEnd <= sourceChunk.m_ChunkLength, "gap too big");
                         if (delta != 0)     // can skip the sliding of gaps if source an target string are the same size.  
                         {
                             // Copy the gap data between the current replacement and the the next replacement
-                            fixed (char* sourcePtr = &sourceChunk.m_ChunkChars[gapStart])
-                                ReplaceInPlaceAtChunk(ref targetChunk, ref targetIndexInChunk, sourcePtr, gapEnd - gapStart);
+                            fixed (byte* sourcePtr = sourceChunk.m_ChunkBytes) {
+								if (sourceChunk.m_IsCompact)
+									ReplaceInPlaceAtChunk(ref targetChunk, ref targetIndexInChunk, sourcePtr + gapStart, gapEnd - gapStart);
+								else
+									ReplaceInPlaceAtChunk(ref targetChunk, ref targetIndexInChunk, (char*)sourcePtr + gapStart, gapEnd - gapStart);
+							}
                         }
                         else
                         {
@@ -996,11 +1001,6 @@ namespace System.Text {
                 }
             }
         }
-#else
-        private void ReplaceAllInChunk(int[] replacements, int replacementsCount, StringBuilder sourceChunk, int removeCount, string value) {
-			throw new NotImplementedException("ReplaceAllInChunk(int[],int,StringBuilder,int,String)");
-		}
-#endif
 
         /// <summary>
         /// Returns true if the string that is starts at 'chunk' and 'indexInChunk, and has a logical

@@ -138,8 +138,14 @@ public class Tests {
 	{
 		if (s == null)
 			return 2;
-		else
-			return s.ToString () == "ABC" ? 0 : 1;
+		else {
+			var q = s.ToString ();
+			Console.WriteLine (".Length: " + s.Length.ToString ());
+			Console.WriteLine (".m_IsCompact: " + s.m_IsCompact);
+			Console.WriteLine (".ToString().Length: " + q.Length.ToString ());
+			Console.WriteLine (q);
+			return q == "ABC" ? 0 : 1;
+		}
 	}
 
 	[DllImport ("libtest", EntryPoint="mono_test_ref_vtype")]

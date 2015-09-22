@@ -87,8 +87,9 @@
 		return retval;										  \
        };				}G_STMT_END
 
-#define mono_string_builder_capacity(sb) sb->chunkOffset + sb->chunkChars->max_length
-#define mono_string_builder_string_length(sb) sb->chunkOffset + sb->chunkLength
+#define mono_string_builder_char_size(sb) ((sb)->chunkBytes->max_length / ((sb)->isCompact ? sizeof (char) : sizeof (gunichar2)))
+#define mono_string_builder_capacity(sb) ((sb)->chunkOffset + ((sb)->chunkBytes->max_length / mono_string_builder_char_size(sb)))
+#define mono_string_builder_string_length(sb) ((sb)->chunkOffset + (sb)->chunkLength)
 
 /* 
  * Macros which cache the results of lookups locally.
@@ -304,11 +305,12 @@ typedef struct _MonoStringBuilder MonoStringBuilder;
 
 struct _MonoStringBuilder {
 	MonoObject object;
-	MonoArray  *chunkChars;
+	MonoArray  *chunkBytes;
 	MonoStringBuilder* chunkPrevious;      // Link to the block logically before this block
 	int chunkLength;                  // The index in ChunkChars that represent the end of the block
 	int chunkOffset;                  // The logial offset (sum of all characters in previous blocks)
 	int maxCapacity;
+	MonoBoolean isCompact;
 };
 
 typedef struct {
