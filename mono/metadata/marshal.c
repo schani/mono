@@ -887,6 +887,9 @@ mono_string_builder_to_utf16 (MonoStringBuilder *sb)
 
 	g_assert (sb->chunkBytes);
 
+	g_print ("mono_string_builder_to_utf16(%p[chunkBytes[max_length=%lu],chunkPrevious=%p,chunkLength=%d,chunkOffset=%d,isCompact=%s])\n",
+			 sb, sb->chunkBytes->max_length, sb->chunkPrevious, sb->chunkLength, sb->chunkOffset, sb->isCompact ? "true" : "false");
+
 	guint len = mono_string_builder_capacity (sb);
 
 	if (len == 0)
@@ -906,20 +909,19 @@ mono_string_builder_to_utf16 (MonoStringBuilder *sb)
 				char *source = (char *)chunk->chunkBytes->vector;
 				if (chunk->chunkLength <= len) {
 					for (int i = 0; i < chunk->chunkLength; ++i)
-						(str + chunk->chunkOffset) [i] = (gunichar2)source [i];
+						str [chunk->chunkOffset + i] = (gunichar2)source [i];
 				} else {
 					g_error ("A compact chunk in the StringBuilder had a length (%d) longer than expected (%d) from the offset.", chunk->chunkLength, len);
 				}
-				len -= chunk->chunkLength;
 			} else {
 				gunichar2 *source = (gunichar2 *)chunk->chunkBytes->vector;
 				if (chunk->chunkLength <= len) {
-					memcpy (str + chunk->chunkOffset, source, chunk->chunkLength * sizeof(gunichar2));
+					memcpy (str + chunk->chunkOffset, source, chunk->chunkLength * sizeof (gunichar2));
 				} else {
 					g_error ("A non-compact chunk in the StringBuilder had a length (%d) longer than expected (%d) from the offset.", chunk->chunkLength, len);
 				}
-				len -= chunk->chunkLength;
 			}
+			len -= chunk->chunkLength;
 		}
 		chunk = chunk->chunkPrevious;
 	} while (chunk != NULL);

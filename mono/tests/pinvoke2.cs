@@ -828,8 +828,10 @@ public class Tests {
 		mono_test_marshal_stringbuilder (sb, sb.Capacity);
 		String res = sb.ToString();
 
-		if (res != "This is my message.  Isn't it nice?")
-			return 1;  
+		if (res != "This is my message.  Isn't it nice?") {
+			Console.WriteLine ("Expected \"This is my message.  Isn't it nice?\" but got \"" + res + "\"");
+			return 1;
+		}
 
 		// Test StringBuilder with default capacity (16)
 		StringBuilder sb2 = new StringBuilder();

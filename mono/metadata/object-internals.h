@@ -87,7 +87,7 @@
 		return retval;										  \
        };				}G_STMT_END
 
-#define mono_string_builder_char_size(sb) ((sb)->chunkBytes->max_length / ((sb)->isCompact ? sizeof (char) : sizeof (gunichar2)))
+#define mono_string_builder_char_size(sb) ((sb)->isCompact ? sizeof (char) : sizeof (gunichar2))
 #define mono_string_builder_capacity(sb) ((sb)->chunkOffset + ((sb)->chunkBytes->max_length / mono_string_builder_char_size(sb)))
 #define mono_string_builder_string_length(sb) ((sb)->chunkOffset + (sb)->chunkLength)
 

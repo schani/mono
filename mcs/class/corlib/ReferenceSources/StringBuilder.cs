@@ -599,7 +599,7 @@ namespace System.Text {
                 else
                 {
                     m_ChunkLength = idx;
-                    ExpandByABlock(repeatCount);
+                    ExpandByABlock(repeatCount, m_IsCompact);
                     Contract.Assert(m_ChunkLength == 0, "Expand should create a new block");
                     idx = 0;
                 }
@@ -848,7 +848,7 @@ namespace System.Text {
 
                 // Expand the builder to add another chunk. 
                 int restLength = valueCount - firstLength;
-                ExpandByABlock(restLength);
+                ExpandByABlock(restLength, m_IsCompact);
                 Contract.Assert(m_ChunkLength == 0, "Expand did not make a new block");
 
                 // Copy the second chunk
@@ -915,7 +915,7 @@ namespace System.Text {
 
 				// Expand the builder to add another chunk. 
 				int restLength = valueCount - firstLength;
-				ExpandByABlock(restLength);
+				ExpandByABlock(restLength, true);
 				Contract.Assert(m_ChunkLength == 0, "Expand did not make a new block");
 
 				// Copy the second chunk
@@ -1152,7 +1152,7 @@ namespace System.Text {
         /// block is updated so that it is a new block that has at least 'minBlockCharCount' characters.
         /// that can be used to copy characters into it.   
         /// </summary>
-        private void ExpandByABlock(int minBlockCharCount)
+        private void ExpandByABlock(int minBlockCharCount, bool isCompact)
         {
             Contract.Requires(Capacity == Length, "Expand expect to be called only when there is no space left");        // We are currently full
             Contract.Requires(minBlockCharCount > 0, "Expansion request must be positive");
@@ -1180,9 +1180,8 @@ namespace System.Text {
                 m_ChunkBytes = null;
                 throw new OutOfMemoryException();
             }
-			/* Optimistically assume this chunk will be compact. */
-            m_ChunkBytes = new byte[newBlockLength];
-			m_IsCompact = true;
+			m_IsCompact = isCompact;
+            m_ChunkBytes = new byte[newBlockLength * CharSize];
 
             VerifyClassInvariant();
         }
@@ -1306,7 +1305,7 @@ namespace System.Text {
             Contract.Assert(size > 0, "size not positive");
             Contract.Assert(maxCapacity > 0, "maxCapacity not positive");
 			m_IsCompact = isCompact;
-			m_ChunkBytes = new byte[CharSize];
+			m_ChunkBytes = new byte[size * CharSize];
             m_MaxCapacity = maxCapacity;
             m_ChunkPrevious = previousBlock;
             if (previousBlock != null)
