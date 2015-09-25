@@ -4988,7 +4988,7 @@ init_string_counters ()
 }
 /* #endif */
 
-static MonoInternalEncoding
+MonoInternalEncoding
 mono_string_infer_encoding_utf8 (const char *text, size_t length)
 {
 #if ENABLE_COMPACT_ENCODING

@@ -16,6 +16,7 @@
 #endif
 
 #include "object.h"
+#include "object-internals.h"
 #include "loader.h"
 #include "cil-coff.h"
 #include "metadata/marshal.h"
@@ -696,14 +697,14 @@ mono_array_to_byte_byvalarray (gpointer native_arr, MonoArray *arr, guint32 elnu
 }
 
 static MonoStringBuilder *
-mono_string_builder_new (int starting_string_length)
+mono_string_builder_new (int starting_string_length, MonoInternalEncoding encoding)
 {
 	static MonoClass *string_builder_class;
 	static MonoMethod *sb_ctor;
 	static void *args [3];
 	int initial_len = starting_string_length;
 	int max_capacity = INT_MAX;
-	MonoBoolean is_compact = FALSE;
+	MonoBoolean is_compact = encoding == MONO_ENCODING_ASCII;
 
 	if (initial_len < 0)
 		initial_len = 0;
@@ -745,17 +746,59 @@ mono_string_builder_new (int starting_string_length)
 	return sb;
 }
 
+/* As long as this is only called by mono_string_utf8_to_builder, it can assume
+ * that the text is compact-representable.
+*/
+static void
+mono_string_utf8_to_builder_copy (MonoStringBuilder *sb, char *text, size_t string_len)
+{
+	if (sb->isCompact) {
+		memcpy (sb->chunkBytes->vector, text, string_len);
+	} else {
+		g_assert_not_reached ();
+	}
+	sb->chunkLength = string_len;
+}
+
 static void
 mono_string_utf16_to_builder_copy (MonoStringBuilder *sb, gunichar2 *text, size_t string_len)
 {
-	
-	gunichar2 *charDst = (gunichar2 *)sb->chunkBytes->vector;
-	gunichar2 *charSrc = (gunichar2 *)text;
-	memcpy (charDst, charSrc, sizeof (gunichar2) * string_len);
-
+	/* Unfortunately we have to re-infer the encoding, because the StringBuilder
+	 * data may have been changed by unmanaged code, so its representation might
+	 * have to change. Fortunately, the new representation might be the compact
+	 * encoding, so we might get to save some memory.
+	 */
+	MonoInternalEncoding encoding = mono_string_infer_encoding_utf16 (text, string_len);
+	if (sb->isCompact) {
+		switch (encoding) {
+		case MONO_ENCODING_ASCII:
+			{
+				g_assert_not_reached ();
+				break;
+			}
+		case MONO_ENCODING_UTF16:
+			{
+				g_assert_not_reached ();
+				break;
+			}
+		}
+	} else {
+		switch (encoding) {
+		case MONO_ENCODING_ASCII:
+			{
+				g_assert_not_reached ();
+				break;
+			}
+		case MONO_ENCODING_UTF16:
+			{
+				gunichar2 *charDst = (gunichar2 *)sb->chunkBytes->vector;
+				gunichar2 *charSrc = (gunichar2 *)text;
+				memcpy (charDst, charSrc, sizeof (gunichar2) * string_len);
+				break;
+			}
+		}
+	}
 	sb->chunkLength = string_len;
-
-	return;
 }
 
 MonoStringBuilder *
@@ -767,11 +810,14 @@ mono_string_utf16_to_builder2 (gunichar2 *text)
 	int len;
 	for (len = 0; text [len] != 0; ++len);
 
-	MonoStringBuilder *sb = mono_string_builder_new (len);
+	MonoInternalEncoding encoding = mono_string_infer_encoding_utf16 (text, len);
+	MonoStringBuilder *sb = mono_string_builder_new (len, encoding);
 	mono_string_utf16_to_builder (sb, text);
 
 	return sb;
 }
+
+gpointer sgen_client_get_provenance (MonoObject *);
 
 void
 mono_string_utf8_to_builder (MonoStringBuilder *sb, char *text)
@@ -779,21 +825,37 @@ mono_string_utf8_to_builder (MonoStringBuilder *sb, char *text)
 	if (!sb || !text)
 		return;
 
+	g_print ("%s(%p)", __FUNCTION__, sb);
+	// g_assert_not_reached ();
+
 	int len = strlen (text);
 	if (len > mono_string_builder_capacity (sb))
 		len = mono_string_builder_capacity (sb);
 
-	GError *error = NULL;
-	glong copied;
-	gunichar2* ut = g_utf8_to_utf16 (text, len, NULL, &copied, &error);
+	MonoInternalEncoding encoding = mono_string_infer_encoding_utf8 (text, len);
+	switch (encoding) {
+	case MONO_ENCODING_ASCII:
+		{
+			MONO_OBJECT_SETREF (sb, chunkPrevious, NULL);
+			mono_string_utf8_to_builder_copy (sb, text, len);
+			break;
+		}
+	case MONO_ENCODING_UTF16:
+		{
+			GError *error = NULL;
+			glong copied;
+			gunichar2* ut = g_utf8_to_utf16 (text, len, NULL, &copied, &error);
 
-	if (!error) {
-		MONO_OBJECT_SETREF (sb, chunkPrevious, NULL);
-		mono_string_utf16_to_builder_copy (sb, ut, copied);
-	} else
-		g_error_free (error);
+			if (!error) {
+				MONO_OBJECT_SETREF (sb, chunkPrevious, NULL);
+				mono_string_utf16_to_builder_copy (sb, ut, copied);
+			} else
+				g_error_free (error);
 
-	g_free (ut);
+			g_free (ut);
+			break;
+		}
+	}
 }
 
 MonoStringBuilder *
@@ -803,7 +865,8 @@ mono_string_utf8_to_builder2 (char *text)
 		return NULL;
 
 	int len = strlen (text);
-	MonoStringBuilder *sb = mono_string_builder_new (len);
+	MonoInternalEncoding encoding = mono_string_infer_encoding_utf8 (text, len);
+	MonoStringBuilder *sb = mono_string_builder_new (len, encoding);
 	mono_string_utf8_to_builder (sb, text);
 
 	return sb;
@@ -815,6 +878,9 @@ mono_string_utf16_to_builder (MonoStringBuilder *sb, gunichar2 *text)
 {
 	if (!sb || !text)
 		return;
+
+	g_print ("%s(%p)", __FUNCTION__, sb);
+	// g_assert_not_reached ();
 
 	guint32 len;
 	for (len = 0; text [len] != 0; ++len);
@@ -843,6 +909,8 @@ mono_string_builder_to_utf8 (MonoStringBuilder *sb)
 	if (!sb)
 		return NULL;
 
+	g_print ("mono_string_builder_to_utf8(%p[chunkBytes[max_length=%lu],chunkPrevious=%p,chunkLength=%d,chunkOffset=%d,isCompact=%s])\n",
+			 sb, sb->chunkBytes->max_length, sb->chunkPrevious, sb->chunkLength, sb->chunkOffset, sb->isCompact ? "true" : "false");
 
 	gunichar2 *str_utf16 = mono_string_builder_to_utf16 (sb);
 

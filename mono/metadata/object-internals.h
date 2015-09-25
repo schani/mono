@@ -179,6 +179,7 @@ typedef enum MonoInternalEncoding {
 #define mono_object_class(obj) (((MonoObject*)(obj))->vtable->klass)
 #define mono_object_domain(obj) (((MonoObject*)(obj))->vtable->domain)
 
+MonoInternalEncoding mono_string_infer_encoding_utf8 (const char *text, size_t length);
 MonoInternalEncoding mono_string_infer_encoding_utf16 (const guint16 *text, size_t length);
 
 static inline gboolean
