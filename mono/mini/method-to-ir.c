@@ -6595,7 +6595,7 @@ inline static MonoInst*
 mini_redirect_call (MonoCompile *cfg, MonoMethod *method,  
 					MonoMethodSignature *signature, MonoInst **args, MonoInst *this_ins)
 {
-	if (method->klass == mono_defaults.string_class) {
+	if (FALSE && method->klass == mono_defaults.string_class) {
 		/* managed string allocation support */
 		if (strcmp (method->name, "InternalAllocateStr") == 0 && !(mono_profiler_events & MONO_PROFILE_ALLOCATIONS) && !(cfg->opt & MONO_OPT_SHARED)) {
 			MonoInst *iargs [3];

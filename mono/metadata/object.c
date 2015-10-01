@@ -5219,7 +5219,7 @@ mono_string_new_size (MonoDomain *domain, gint32 len, int32_t encoding)
 			;
 		break;
 	default:
-		g_assert_not_reached ();
+		g_error ("%s called with invalid encoding %d", __FUNCTION__, encoding);
 	}
 
 	g_assert (size > 0);
