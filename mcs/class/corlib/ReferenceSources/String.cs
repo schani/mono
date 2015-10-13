@@ -55,7 +55,7 @@ namespace System
 			get { return (int)(m_taggedStringLength >> 1); }
 		}
 
-		internal bool IsCompact {
+		public bool IsCompact {
 			get { return (m_taggedStringLength & 1) != 0; }
 		}
 
