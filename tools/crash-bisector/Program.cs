@@ -53,6 +53,33 @@ namespace crashbisector
 			return stdout != null;
 		}
 
+		bool TryEliminate (IEnumerable<string> methods, int chunkSize) {
+			var count = methods.Count ();
+			if (chunkSize < 1 || chunkSize * 2 >= count)
+				throw new Exception ("I can't do math.");
+
+			var numChunks = (count + chunkSize - 1) / chunkSize;
+			for (var i = numChunks - 1; i >= 0; --i) {
+				var firstIndex = i * chunkSize;
+				var lastPlusOneIndex = (i + 1) * chunkSize;
+				var methodsLeft = methods.Take (firstIndex).Concat (methods.Skip (lastPlusOneIndex));
+
+				if (chunkSize == 1)
+					Console.WriteLine ("Running without method at position {0}", firstIndex);
+				else
+					Console.WriteLine ("Running without methods at positions {0} to {1}", firstIndex, lastPlusOneIndex - 1);
+				var success = RunWithMethods (methodsLeft);
+				Console.WriteLine ("Crashed: {0}", !success);
+
+				if (!success) {
+					Console.WriteLine ("Trying bisecting again with {0} methods.", methodsLeft.Count ());
+					return BisectStep (methodsLeft);
+				}
+			}
+
+			return false;
+		}
+
 		bool EliminationStep (IEnumerable<string> methods) {
 			var count = methods.Count ();
 
@@ -62,20 +89,16 @@ namespace crashbisector
 				return true;
 			}
 
-			for (var i = 0; i < count; ++i) {
-				var methodsLeft = methods.Take (i).Concat (methods.Skip (i + 1));
-				if (methodsLeft.Count () != count - 1)
-					throw new Exception ("I'm too stupid to remove an element.");
-
-				Console.WriteLine ("Running without method at position {0}.", i);
-				var success = RunWithMethods (methodsLeft);
-				Console.WriteLine ("Crashed: {0}", !success);
-
-				if (!success) {
-					Console.WriteLine ("Trying bisecting again with {0} methods.", methodsLeft.Count ());
-					return BisectStep (methodsLeft);
-				}
+			if (count >= 9) {
+				var chunkSize = (int)Math.Floor (Math.Sqrt (count));
+				Console.WriteLine ("Trying eliminating chunks of {0}.", chunkSize);
+				if (TryEliminate (methods, chunkSize))
+					return true;
+				Console.WriteLine ("Chunks didn't succeed, eliminating individual methods.");
 			}
+
+			if (TryEliminate (methods, 1))
+				return true;
 
 			Console.WriteLine ("Couldn't eliminate any method.  Methods required to crash are:\n{0}",
 				string.Join ("\n", methods));
