@@ -72,8 +72,8 @@ namespace crashbisector
 				Console.WriteLine ("Crashed: {0}", !success);
 
 				if (!success) {
-					Console.WriteLine ("Trying bisecting again with {0} methods.", methodsLeft.Count ());
-					return BisectStep (methodsLeft);
+					Console.WriteLine ("Eliminating further from {0} methods.", methodsLeft.Count ());
+					return EliminationStep (methodsLeft);
 				}
 			}
 
