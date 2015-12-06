@@ -14,7 +14,12 @@ namespace crashbisector
 		public string MonoPath { get; set; }
 		public string OptName { get; set; }
 		public IEnumerable<string> Args { get; set; }
-	
+		Random rand;
+
+		public BisectInfo () {
+			rand = new Random ();
+		}
+
 		string Run (string bisectArg) {
 			var args = Args;
 
@@ -53,13 +58,26 @@ namespace crashbisector
 			return stdout != null;
 		}
 
+		IEnumerable<int> EliminationOrder (int numChunks) {
+			var chunks = new int [numChunks];
+			for (var i = 0; i < numChunks; ++i)
+				chunks [i] = i;
+			for (var i = 0; i < numChunks; ++i) {
+				var j = rand.Next (i, numChunks);
+				var tmp = chunks [i];
+				chunks [i] = chunks [j];
+				chunks [j] = tmp;
+			}
+			return chunks;
+		}
+
 		bool TryEliminate (IEnumerable<string> methods, int chunkSize) {
 			var count = methods.Count ();
 			if (chunkSize < 1 || chunkSize * 2 >= count)
 				throw new Exception ("I can't do math.");
 
 			var numChunks = (count + chunkSize - 1) / chunkSize;
-			for (var i = numChunks - 1; i >= 0; --i) {
+			foreach (var i in EliminationOrder (numChunks)) {
 				var firstIndex = i * chunkSize;
 				var lastPlusOneIndex = (i + 1) * chunkSize;
 				var methodsLeft = methods.Take (firstIndex).Concat (methods.Skip (lastPlusOneIndex));
