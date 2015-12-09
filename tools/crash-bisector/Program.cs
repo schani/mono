@@ -73,7 +73,7 @@ namespace crashbisector
 
 		bool TryEliminate (IEnumerable<string> methods, int chunkSize) {
 			var count = methods.Count ();
-			if (chunkSize < 1 || chunkSize * 2 >= count)
+			if (chunkSize < 1 || chunkSize > count)
 				throw new Exception ("I can't do math.");
 
 			var numChunks = (count + chunkSize - 1) / chunkSize;
@@ -101,7 +101,7 @@ namespace crashbisector
 		bool EliminationStep (IEnumerable<string> methods) {
 			var count = methods.Count ();
 
-			if (count < 3) {
+			if (count < 2) {
 				Console.WriteLine ("Can't eliminate further.  Methods required to crash are:\n{0}",
 					string.Join ("\n", methods));
 				return true;
@@ -138,7 +138,7 @@ namespace crashbisector
 			var half = count / 2;
 			var firstHalf = methods.Take (half);
 			var secondHalf = methods.Skip (half);
-			Console.WriteLine ("Splitting into to halves: {0} and {1} methods.", firstHalf.Count (), secondHalf.Count ());
+			Console.WriteLine ("Splitting into two halves: {0} and {1} methods.", firstHalf.Count (), secondHalf.Count ());
 
 			Console.WriteLine ("Running first half.");
 			var firstSuccess = RunWithMethods (firstHalf);
