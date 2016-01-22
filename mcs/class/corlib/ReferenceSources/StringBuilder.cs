@@ -16,7 +16,6 @@ namespace System.Text {
     using System.Diagnostics.Contracts;
 
 	public partial class StringBuilder {
-
 		internal int CharSize {
 			get { return m_IsCompact ? sizeof(byte) : sizeof(char); }
 		}
@@ -181,17 +180,13 @@ namespace System.Text {
 			unsafe {
 				fixed (byte* chunkBytes = m_ChunkBytes)
 				fixed (char* persistedChars = persistedString) {
-					if (persistedString.IsCompact) {
-						/* FIXME: Not thread-safe. */
-						Buffer.Memcpy(chunkBytes, (byte*)persistedChars, persistedString.Length);
-					} else if (m_IsCompact) {
+					if (m_IsCompact && !persistedString.IsCompact) {
 						/* FIXME: Unroll. */
 						for (int i = 0; i < persistedString.Length; ++i)
 							chunkBytes[i] = (byte)persistedChars[i];
 					} else {
-						/* FIXME: Unroll. */
-						for (int i = 0; i < persistedString.Length; ++i)
-							((char*)chunkBytes)[i] = persistedChars[i];
+						/* FIXME: Not thread-safe. */
+						Buffer.Memcpy(chunkBytes, (byte*)persistedChars, persistedString.Length * CharSize);
 					}
 				}
 			}
@@ -279,7 +274,7 @@ namespace System.Text {
                             int chunkLength = chunk.m_ChunkLength;
     
                             // Check that we will not overrun our boundaries. 
-                            if ((uint)(chunkLength + chunkOffset) <= ret.Length && (uint)chunkLength <= (uint)sourceArray.Length) {
+                            if ((uint)(chunkLength + chunkOffset) <= ret.Length && (uint)chunkLength <= (uint)chunk.ChunkCapacity) {
                                 fixed (byte* sourceBytes = sourceArray)
                                     Buffer.Memcpy(destBytes + chunkOffset, sourceBytes, chunkLength);
                             } else {
@@ -297,7 +292,7 @@ namespace System.Text {
                             int chunkLength = chunk.m_ChunkLength;
     
                             // Check that we will not overrun our boundaries. 
-                            if ((uint)(chunkLength + chunkOffset) <= ret.Length && (uint)chunkLength <= (uint)sourceArray.Length) {
+                            if ((uint)(chunkLength + chunkOffset) <= ret.Length && (uint)chunkLength <= (uint)chunk.ChunkCapacity) {
 								fixed (byte* sourceBytes = sourceArray) {
 									if (chunk.m_IsCompact) {
 										/* FIXME: Unroll. */
@@ -317,6 +312,8 @@ namespace System.Text {
 			}
             return ret;
         }
+
+		// NOTE: This is where we left of vetting.
 
         // Converts a substring of this string builder to a String.
         [System.Security.SecuritySafeCritical]  // auto-generated
@@ -346,6 +343,7 @@ namespace System.Text {
             StringBuilder chunk = this;
             int sourceEndIndex = startIndex + length;
 
+			/* FIXME: we could check the substring for compactness */
 			bool compactRepresentable = CompactRepresentable;
             string ret = string.FastAllocateString(length, String.SelectEncoding(compactRepresentable));
             int curDestIndex = length;
@@ -378,7 +376,7 @@ namespace System.Text {
 								byte[] sourceArray = chunk.m_ChunkBytes;
     
 								// Check that we will not overrun our boundaries. 
-								if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)sourceArray.Length)
+								if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)chunk.Capacity)
 								{
 									fixed (byte* sourceBytes = sourceArray)
 										/* It's safe to copy directly from the source array because
@@ -420,7 +418,7 @@ namespace System.Text {
 								byte[] sourceArray = chunk.m_ChunkBytes;
     
 								// Check that we will not overrun our boundaries. 
-								if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)sourceArray.Length)
+								if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)chunk.Capacity)
 								{
 									fixed (byte* sourceBytes = sourceArray) {
 										if (chunk.m_IsCompact) {
@@ -1041,8 +1039,6 @@ namespace System.Text {
         [SecurityCritical]
         unsafe private void ReplaceInPlaceAtChunk(ref StringBuilder chunk, ref int indexInChunk, char* value, int count)
         {
-			if (!String.CompactRepresentable(value, count))
-				chunk.Degrade();
 			if (count == 0)
 				return;
 			while (true)
@@ -1051,10 +1047,20 @@ namespace System.Text {
 				Contract.Assert(lengthInChunk >= 0, "index not in chunk");
 
 				int lengthToCopy = Math.Min(lengthInChunk, count);
-				fixed (byte* chunkBytes = chunk.m_ChunkBytes)
-					Buffer.Memcpy(chunkBytes, (byte*)value, lengthToCopy * chunk.CharSize);
 
-				// Advance the index. 
+				if (!String.CompactRepresentable(value, lengthToCopy))
+					chunk.Degrade();
+
+				fixed (byte* chunkBytes = chunk.m_ChunkBytes) {
+					if (chunk.m_IsCompact) {
+						for (int i = 0; i < lengthToCopy; i++)
+							chunkBytes[indexInChunk + i] = (byte)value[i];
+					} else {
+						Buffer.Memcpy(chunkBytes + indexInChunk * chunk.CharSize, (byte*)value, lengthToCopy * chunk.CharSize);
+					}
+				}
+
+				// Advance the index.
 				indexInChunk += lengthToCopy;
 				if (indexInChunk >= chunk.m_ChunkLength)
 				{
