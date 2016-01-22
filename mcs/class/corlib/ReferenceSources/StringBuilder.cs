@@ -313,8 +313,6 @@ namespace System.Text {
             return ret;
         }
 
-		// NOTE: This is where we left of vetting.
-
         // Converts a substring of this string builder to a String.
         [System.Security.SecuritySafeCritical]  // auto-generated
         public unsafe String ToString(int startIndex, int length) {
@@ -543,8 +541,6 @@ namespace System.Text {
                 }
             }
             set {
-				if (!String.CompactRepresentable(value))
-					Degrade();
                 StringBuilder chunk = this;
                 for (; ; )
                 {
@@ -553,6 +549,8 @@ namespace System.Text {
                     {
                         if (indexInBlock >= chunk.m_ChunkLength)
                             throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_Index"));
+						if (!String.CompactRepresentable(value))
+							chunk.Degrade();
 						fixed (byte* chunkBytes = chunk.m_ChunkBytes) {
 							if (chunk.m_IsCompact)
 								chunkBytes[indexInBlock] = (byte)value;
@@ -688,18 +686,19 @@ namespace System.Text {
         // Appends a character at the end of this string builder. The capacity is adjusted as needed.
         public unsafe StringBuilder Append(char value) {
             Contract.Ensures(Contract.Result<StringBuilder>() != null);
-			if (!String.CompactRepresentable(value))
-				Degrade();
-
             if (m_ChunkLength < ChunkCapacity) {
+				if (!String.CompactRepresentable(value))
+					Degrade();
+
 				fixed (byte* chunkBytes = m_ChunkBytes) {
 					if (m_IsCompact)
 						chunkBytes[m_ChunkLength++] = (byte)value;
 					else
 						((char*)chunkBytes)[m_ChunkLength++] = value;
 				}
-            } else
+            } else {
                 Append(value, 1);
+			}
             return this;
         }
 
@@ -1286,7 +1285,7 @@ namespace System.Text {
 					if (copyCount2 >= 0)
 					{
 						/* FIXME: Not thread-safe. */
-						Buffer.Memcpy(chunkBytes, chunkBytes + copyCount1 * chunk.CharSize, copyCount2);
+						Buffer.Memcpy(chunkBytes, chunkBytes + copyCount1 * chunk.CharSize, copyCount2 * chunk.CharSize);
 						indexInChunk = copyCount2;
 					}
 				}
