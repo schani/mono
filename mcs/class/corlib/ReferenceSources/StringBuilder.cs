@@ -347,78 +347,42 @@ namespace System.Text {
             int curDestIndex = length;
 			fixed (char* destChars = ret)
 			{
-				if (compactRepresentable) {
-					byte* destBytes = (byte*)destChars;
+				byte* destBytes = (byte*)destChars;
 
-					while (curDestIndex > 0)
+				while (curDestIndex > 0)
+				{
+					int chunkEndIndex = sourceEndIndex - chunk.m_ChunkOffset;
+					if (chunkEndIndex >= 0)
 					{
-						int chunkEndIndex = sourceEndIndex - chunk.m_ChunkOffset;
-						if (chunkEndIndex >= 0)
+						if (chunkEndIndex > chunk.m_ChunkLength)
+							chunkEndIndex = chunk.m_ChunkLength;
+    
+						int countLeft = curDestIndex;
+						int chunkCount = countLeft;
+						int chunkStartIndex = chunkEndIndex - countLeft;
+						if (chunkStartIndex < 0)
 						{
-							if (chunkEndIndex > chunk.m_ChunkLength)
-								chunkEndIndex = chunk.m_ChunkLength;
+							chunkCount += chunkStartIndex;
+							chunkStartIndex = 0;
+						}
+						curDestIndex -= chunkCount;
     
-							int countLeft = curDestIndex;
-							int chunkCount = countLeft;
-							int chunkStartIndex = chunkEndIndex - countLeft;
-							if (chunkStartIndex < 0)
+						if (chunkCount > 0)
+						{
+							// work off of local variables so that they are stable even in the presence of ----s (hackers might do this)
+							byte[] sourceArray = chunk.m_ChunkBytes;
+    
+							// Check that we will not overrun our boundaries. 
+							if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)chunk.Capacity)
 							{
-								chunkCount += chunkStartIndex;
-								chunkStartIndex = 0;
-							}
-							curDestIndex -= chunkCount;
-    
-							if (chunkCount > 0)
-							{
-								// work off of local variables so that they are stable even in the presence of ----s (hackers might do this)
-								byte[] sourceArray = chunk.m_ChunkBytes;
-    
-								// Check that we will not overrun our boundaries. 
-								if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)chunk.Capacity)
-								{
-									fixed (byte* sourceBytes = sourceArray)
+								fixed (byte* sourceBytes = sourceArray) {
+									if (compactRepresentable) {
 										/* It's safe to copy directly from the source array because
 										 * all chunks must be compact in order for the StringBuilder
 										 * to be CompactRepresentable.
 										 */
 										Buffer.Memcpy(destBytes + curDestIndex, sourceBytes + chunkStartIndex, chunkCount);
-								}
-								else
-								{
-									throw new ArgumentOutOfRangeException("chunkCount", Environment.GetResourceString("ArgumentOutOfRange_Index"));
-								}
-							}
-						}
-						chunk = chunk.m_ChunkPrevious;
-					}
-				} else {
-					while (curDestIndex > 0)
-					{
-						int chunkEndIndex = sourceEndIndex - chunk.m_ChunkOffset;
-						if (chunkEndIndex >= 0)
-						{
-							if (chunkEndIndex > chunk.m_ChunkLength)
-								chunkEndIndex = chunk.m_ChunkLength;
-    
-							int countLeft = curDestIndex;
-							int chunkCount = countLeft;
-							int chunkStartIndex = chunkEndIndex - countLeft;
-							if (chunkStartIndex < 0)
-							{
-								chunkCount += chunkStartIndex;
-								chunkStartIndex = 0;
-							}
-							curDestIndex -= chunkCount;
-    
-							if (chunkCount > 0)
-							{
-								// work off of local variables so that they are stable even in the presence of ----s (hackers might do this)
-								byte[] sourceArray = chunk.m_ChunkBytes;
-    
-								// Check that we will not overrun our boundaries. 
-								if ((uint)(chunkCount + curDestIndex) <= length && (uint)(chunkCount + chunkStartIndex) <= (uint)chunk.Capacity)
-								{
-									fixed (byte* sourceBytes = sourceArray) {
+									} else {
 										if (chunk.m_IsCompact) {
 											/* FIXME: Unroll. */
 											for (int i = 0; i < chunkCount; ++i)
@@ -428,14 +392,14 @@ namespace System.Text {
 										}
 									}
 								}
-								else
-								{
-									throw new ArgumentOutOfRangeException("chunkCount", Environment.GetResourceString("ArgumentOutOfRange_Index"));
-								}
+							}
+							else
+							{
+								throw new ArgumentOutOfRangeException("chunkCount", Environment.GetResourceString("ArgumentOutOfRange_Index"));
 							}
 						}
-						chunk = chunk.m_ChunkPrevious;
 					}
+					chunk = chunk.m_ChunkPrevious;
 				}
 			}
             return ret;
@@ -796,6 +760,29 @@ namespace System.Text {
 		}
 #endif
 
+		internal unsafe void CopyFromChars(int destIndex, char *source, int count) {
+			fixed (byte* chunkBytes = m_ChunkBytes) {
+				if (m_IsCompact) {
+					for (int i = 0; i < count; i++)
+						chunkBytes[destIndex + i] = (byte)source[i];
+				} else {
+					/* FIXME: Not thread-safe. */
+					String.wstrcpy((char*)chunkBytes + destIndex, source, count);
+				}
+			}
+		}
+
+		internal unsafe void CopyFromBytes(int destIndex, byte *source, int count) {
+			fixed (byte* chunkBytes = m_ChunkBytes) {
+				if (m_IsCompact) {
+					Buffer.Memcpy(chunkBytes + destIndex, source, count);
+				} else {
+					for (int i = 0; i < count; i++)
+						((char*)chunkBytes)[destIndex + i] = (char)source[i];
+				}
+			}
+		}
+
         /// <summary>
         /// Appends 'value' of length 'count' to the stringBuilder. 
         /// </summary>
@@ -811,16 +798,7 @@ namespace System.Text {
             int newIndex = valueCount + m_ChunkLength;
             if (newIndex <= ChunkCapacity)
             {
-				fixed (byte* chunkBytes = m_ChunkBytes) {
-					if (m_IsCompact) {
-						/* FIXME: Unroll. */
-						for (int i = 0; i < valueCount; ++i)
-							chunkBytes[m_ChunkLength + i] = (byte)value[i];
-					} else {
-						/* FIXME: Not thread-safe. */
-						String.wstrcpy((char*)chunkBytes + m_ChunkLength, value, valueCount);
-					}
-				}
+				CopyFromChars(m_ChunkLength, value, valueCount);
                 m_ChunkLength = newIndex;
             }
             else
@@ -829,17 +807,7 @@ namespace System.Text {
                 int firstLength = ChunkCapacity - m_ChunkLength;
                 if (firstLength > 0)
                 {
-					fixed (byte* chunkBytes = m_ChunkBytes)
-					{
-						if (m_IsCompact) {
-							/* FIXME: Unroll. */
-							for (int i = 0; i < firstLength; ++i)
-								chunkBytes[m_ChunkLength + i] = (byte)value[i];
-						} else {
-							/* FIXME: Not thread-safe. */
-							String.wstrcpy((char*)chunkBytes + m_ChunkLength, value, firstLength);
-						}
-					}
+					CopyFromChars(m_ChunkLength, value, firstLength);
                     m_ChunkLength = ChunkCapacity;
                 }
 
@@ -849,16 +817,7 @@ namespace System.Text {
                 Contract.Assert(m_ChunkLength == 0, "Expand did not make a new block");
 
                 // Copy the second chunk
-				fixed (byte* chunkBytes = m_ChunkBytes) {
-					if (m_IsCompact) {
-						/* FIXME: Unroll. */
-						for (int i = 0; i < restLength; ++i)
-							chunkBytes[i] = (byte)value[firstLength + i];
-					} else {
-						/* FIXME: Not thread-safe. */
-						String.wstrcpy((char*)chunkBytes, value + firstLength, restLength);
-					}
-				}
+				CopyFromChars(0, value + firstLength, restLength);
                 m_ChunkLength = restLength;
             }
             VerifyClassInvariant();
@@ -878,17 +837,8 @@ namespace System.Text {
             int newIndex = valueCount + m_ChunkLength;
 			if (newIndex <= ChunkCapacity)
 			{
-				fixed (byte* chunkBytes = m_ChunkBytes) {
-					if (m_IsCompact) {
-						/* FIXME: Not thread-safe. */
-						Buffer.Memcpy(chunkBytes + m_ChunkLength, value, valueCount);
-					} else {
-						/* FIXME: Unroll. */
-						for (int i = 0; i < valueCount; ++i)
-							((char*)chunkBytes)[m_ChunkLength + i] = (char)value[i];
-					}
-					m_ChunkLength = newIndex;
-				}
+				CopyFromBytes(m_ChunkLength, value, valueCount);
+				m_ChunkLength = newIndex;
 			}
 			else
 			{
@@ -896,18 +846,8 @@ namespace System.Text {
 				int firstLength = ChunkCapacity - m_ChunkLength;
 				if (firstLength > 0)
 				{
-					fixed (byte* chunkBytes = m_ChunkBytes)
-					{
-						if (m_IsCompact) {
-							/* FIXME: Not thread-safe. */
-							Buffer.Memcpy(chunkBytes + m_ChunkLength, value, firstLength);
-						} else {
-							/* FIXME: Unroll. */
-							for (int i = 0; i < firstLength; ++i)
-								((char*)chunkBytes)[m_ChunkLength + i] = (char)value[i];
-						}
-						m_ChunkLength = ChunkCapacity;
-					}
+					CopyFromBytes(m_ChunkLength, value, firstLength);
+					m_ChunkLength = ChunkCapacity;
 				}
 
 				// Expand the builder to add another chunk. 
@@ -916,16 +856,7 @@ namespace System.Text {
 				Contract.Assert(m_ChunkLength == 0, "Expand did not make a new block");
 
 				// Copy the second chunk
-				fixed (byte* chunkBytes = m_ChunkBytes) {
-					if (m_IsCompact) {
-						/* FIXME: Not thread-safe. */
-						Buffer.Memcpy(chunkBytes, value + firstLength, restLength);
-					} else {
-						/* FIXME: Unroll. */
-						for (int i = 0; i < restLength; ++i)
-							((char*)chunkBytes)[i] = (char)value[firstLength + i];
-					}
-				}
+				CopyFromBytes(0, value + firstLength, restLength);
 				m_ChunkLength = restLength;
 			}
 
@@ -1050,14 +981,7 @@ namespace System.Text {
 				if (!String.CompactRepresentable(value, lengthToCopy))
 					chunk.Degrade();
 
-				fixed (byte* chunkBytes = chunk.m_ChunkBytes) {
-					if (chunk.m_IsCompact) {
-						for (int i = 0; i < lengthToCopy; i++)
-							chunkBytes[indexInChunk + i] = (byte)value[i];
-					} else {
-						Buffer.Memcpy(chunkBytes + indexInChunk * chunk.CharSize, (byte*)value, lengthToCopy * chunk.CharSize);
-					}
-				}
+				chunk.CopyFromChars(indexInChunk, value, lengthToCopy);
 
 				// Advance the index.
 				indexInChunk += lengthToCopy;
@@ -1084,19 +1008,7 @@ namespace System.Text {
 				Contract.Assert(lengthInChunk >= 0, "index not in chunk");
 
 				int lengthToCopy = Math.Min(lengthInChunk, count);
-				fixed (byte* chunkBytes = chunk.m_ChunkBytes)
-				{
-					if (chunk.m_IsCompact)
-					{
-						Buffer.Memcpy(chunkBytes + indexInChunk, value, lengthToCopy);
-					}
-					else
-					{
-						/* FIXME: Unroll. */
-						for (int i = 0; i < lengthToCopy; ++i)
-							((char*)chunkBytes)[indexInChunk + i] = (char)value[i];
-					}
-				}
+				chunk.CopyFromBytes(indexInChunk, value, lengthToCopy);
 
 				// Advance the index. 
 				indexInChunk += lengthToCopy;
