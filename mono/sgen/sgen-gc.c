@@ -2617,18 +2617,8 @@ mono_gc_wbarrier_generic_nostore (gpointer ptr, GCObject *value)
 	if (obj)
 		binary_protocol_wbarrier (ptr, obj, (gpointer)LOAD_VTABLE (obj));
 
-	/*
-	 * We need to record old->old pointer locations for the
-	 * concurrent collector.
-	 */
-	if (!ptr_in_nursery (obj) && !concurrent_collection_in_progress) {
-		SGEN_LOG (8, "Skipping remset at %p", ptr);
-		return;
-	}
-
 	SGEN_LOG (8, "Adding remset at %p", ptr);
-
-	remset.wbarrier_generic_nostore (ptr);
+	remset.wbarrier_generic_nostore (ptr, value);
 }
 
 void
@@ -2636,8 +2626,7 @@ mono_gc_wbarrier_generic_store (gpointer ptr, GCObject* value)
 {
 	SGEN_LOG (8, "Wbarrier store at %p to %p (%s)", ptr, value, value ? sgen_client_vtable_get_name (SGEN_LOAD_VTABLE (value)) : "null");
 	SGEN_UPDATE_REFERENCE_ALLOW_NULL (ptr, value);
-	if (ptr_in_nursery (value) || concurrent_collection_in_progress)
-		mono_gc_wbarrier_generic_nostore (ptr, value);
+	mono_gc_wbarrier_generic_nostore (ptr, value);
 	sgen_dummy_use (value);
 }
 
@@ -2652,11 +2641,7 @@ mono_gc_wbarrier_generic_store_atomic (gpointer ptr, GCObject *value)
 	SGEN_LOG (8, "Wbarrier atomic store at %p to %p (%s)", ptr, value, value ? sgen_client_vtable_get_name (SGEN_LOAD_VTABLE (value)) : "null");
 
 	InterlockedWritePointer ((volatile gpointer *)ptr, value);
-
-	if (ptr_in_nursery (value) || concurrent_collection_in_progress)
-		mono_gc_wbarrier_generic_nostore (ptr, value);
-
-	sgen_dummy_use (value);
+	mono_gc_wbarrier_generic_nostore (ptr, value);
 }
 
 void
