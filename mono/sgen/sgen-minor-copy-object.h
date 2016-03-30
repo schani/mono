@@ -149,6 +149,7 @@ SERIAL_COPY_OBJECT_FROM_OBJ (GCObject **obj_slot, SgenGrayQueue *queue)
 	}
 
 #ifndef SGEN_SIMPLE_NURSERY
+	SGEN_ASSERT (0, FALSE, "New write barrier only supports simple nursery so far.");
 	if (sgen_nursery_is_to_space (obj)) {
 		/* FIXME: all of these could just use `sgen_obj_get_descriptor_safe()` */
 		SGEN_ASSERT (9, sgen_vtable_get_descriptor (SGEN_LOAD_VTABLE(obj)), "to space object %p has no gc descriptor", obj);
@@ -198,7 +199,11 @@ SERIAL_COPY_OBJECT_FROM_OBJ (GCObject **obj_slot, SgenGrayQueue *queue)
 	HEAVY_STAT (++stat_objects_copied_nursery);
 
 	copy = copy_object_no_checks (obj, queue);
+	/* FIXME: Check that all of these macro invocations are cromulent with regards to
+	   the concurrent collector. */
 	SGEN_UPDATE_REFERENCE (obj_slot, copy);
+	if (!sgen_ptr_in_nursery (obj_slot) && !sgen_ptr_in_nursery (copy))
+		sgen_major_to_major_reference_updated (obj_slot, copy);
 #ifndef SGEN_SIMPLE_NURSERY
 	if (G_UNLIKELY (sgen_ptr_in_nursery (copy) && !sgen_ptr_in_nursery (obj_slot) && !SGEN_OBJECT_IS_CEMENTED (copy)))
 		sgen_add_to_global_remset (obj_slot, copy);
