@@ -97,11 +97,17 @@ extern MonoCoopMutex sgen_interruption_mutex;
 			__old_x = (x);					\
 		} while (InterlockedCompareExchange (&(x), __old_x + (i), __old_x) != __old_x); \
 	} while (0)
-#define SGEN_ATOMIC_ADD_P(x,i) do { \
-		size_t __old_x;                                            \
+#define SGEN_ATOMIC_ADD_P_AND_RETURN(x,i,new) do { \
+		size_t __old_x, __new_x;				\
 		do {                                                    \
 			__old_x = (x);                                  \
-		} while (InterlockedCompareExchangePointer ((void**)&(x), (void*)(__old_x + (i)), (void*)__old_x) != (void*)__old_x); \
+			__new_x = __old_x + (i);			\
+		} while (InterlockedCompareExchangePointer ((void**)&(x), (void*)__new_x, (void*)__old_x) != (void*)__old_x); \
+		(new) = __new_x;					\
+	} while (0)
+#define SGEN_ATOMIC_ADD_P(x,i) do {					\
+		size_t __new;						\
+		SGEN_ATOMIC_ADD_P_AND_RETURN((x), (i), (__new));	\
 	} while (0)
 
 #ifdef HEAVY_STATISTICS
