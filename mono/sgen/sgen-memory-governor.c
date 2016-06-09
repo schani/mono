@@ -43,8 +43,8 @@ static double save_target_ratio = SGEN_DEFAULT_SAVE_TARGET_RATIO;
 
 /**/
 static mword allocated_heap;
-static mword total_alloc = 0;
-static mword total_alloc_max = 0;
+static volatile size_t total_alloc = 0;
+static volatile size_t total_alloc_max = 0;
 
 static SGEN_TV_DECLARE(last_minor_start);
 static SGEN_TV_DECLARE(last_major_start);
@@ -398,7 +398,9 @@ sgen_alloc_os_memory (size_t size, SgenAllocFlags flags, const char *assert_desc
 	ptr = mono_valloc (0, size, prot_flags_for_activate (flags & SGEN_ALLOC_ACTIVATE), type);
 	sgen_assert_memory_alloc (ptr, size, assert_description);
 	if (ptr) {
-		SGEN_ATOMIC_ADD_P (total_alloc, size);
+		size_t new_total_alloc;
+		SGEN_ATOMIC_ADD_P_AND_RETURN (total_alloc, size, new_total_alloc);
+		/* FIXME: this is racy */
 		total_alloc_max = MAX (total_alloc_max, total_alloc);
 	}
 	return ptr;
@@ -417,6 +419,7 @@ sgen_alloc_os_memory_aligned (size_t size, mword alignment, SgenAllocFlags flags
 	sgen_assert_memory_alloc (ptr, size, assert_description);
 	if (ptr) {
 		SGEN_ATOMIC_ADD_P (total_alloc, size);
+		/* FIXME: this is racy */
 		total_alloc_max = MAX (total_alloc_max, total_alloc);
 	}
 	return ptr;
