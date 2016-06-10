@@ -41,6 +41,7 @@ static MonoLockFreeAllocator allocators [NUM_ALLOCATORS];
 
 #ifdef HEAVY_STATISTICS
 static int allocator_sizes_stats [NUM_ALLOCATORS];
+static size_t stat_direct_allocated;
 #endif
 
 static size_t
@@ -159,6 +160,9 @@ sgen_alloc_internal_dynamic (size_t size, int type, gboolean assert_on_failure)
 		p = sgen_alloc_os_memory (size, (SgenAllocFlags)(SGEN_ALLOC_INTERNAL | SGEN_ALLOC_ACTIVATE), NULL, MONO_MEM_ACCOUNT_SGEN_INTERNAL);
 		if (!p)
 			sgen_assert_memory_alloc (NULL, size, description_for_type (type));
+#ifdef HEAVY_STATISTICS
+		stat_direct_allocated += size;
+#endif
 	} else {
 		index = index_for_size (size);
 
@@ -182,6 +186,9 @@ sgen_free_internal_dynamic (void *addr, size_t size, int type)
 
 	if (size > allocator_sizes [NUM_ALLOCATORS - 1]) {
 		sgen_free_os_memory (addr, size, SGEN_ALLOC_INTERNAL, MONO_MEM_ACCOUNT_SGEN_INTERNAL);
+#ifdef HEAVY_STATISTICS
+		stat_direct_allocated -= size;
+#endif
 	} else {
 		mono_lock_free_free (addr, block_size (size));
 #ifdef HEAVY_STATISTICS
@@ -252,6 +259,7 @@ sgen_report_internal_mem_usage (void)
 	printf ("size -> # allocations\n");
 	for (i = 0; i < NUM_ALLOCATORS; ++i)
 		printf ("%d -> %d\n", allocator_sizes [i], allocator_sizes_stats [i]);
+	printf ("direct allocated bytes: %zd\n", stat_direct_allocated);
 #endif
 }
 
