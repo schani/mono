@@ -180,10 +180,14 @@ sgen_free_internal_dynamic (void *addr, size_t size, int type)
 	if (!addr)
 		return;
 
-	if (size > allocator_sizes [NUM_ALLOCATORS - 1])
+	if (size > allocator_sizes [NUM_ALLOCATORS - 1]) {
 		sgen_free_os_memory (addr, size, SGEN_ALLOC_INTERNAL, MONO_MEM_ACCOUNT_SGEN_INTERNAL);
-	else
+	} else {
 		mono_lock_free_free (addr, block_size (size));
+#ifdef HEAVY_STATISTICS
+		-- allocator_sizes_stats [index_for_size (size)];
+#endif
+	}
 }
 
 void*
@@ -219,6 +223,10 @@ sgen_free_internal (void *addr, int type)
 	g_assert (index >= 0 && index < NUM_ALLOCATORS);
 
 	mono_lock_free_free (addr, allocator_block_sizes [index]);
+
+#ifdef HEAVY_STATISTICS
+	-- allocator_sizes_stats [index];
+#endif
 }
 
 void
