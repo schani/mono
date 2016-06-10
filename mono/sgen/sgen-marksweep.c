@@ -377,20 +377,11 @@ ms_get_empty_block (void)
 	return block;
 }
 
-/*
- * This doesn't actually free a block immediately, but enqueues it into the `empty_blocks`
- * list, where it will either be freed later on, or reused in nursery collections.
- */
 static void
-ms_free_block (MSBlockInfo *info)
+add_block_to_empty_blocks (MSBlockInfo *info)
 {
 	void *empty;
 	char *block = MS_BLOCK_FOR_BLOCK_INFO (info);
-
-	sgen_memgov_release_space (MS_BLOCK_SIZE, SPACE_MAJOR);
-	if (info->cardtable_mod_union)
-		sgen_card_table_free_mod_union (info->cardtable_mod_union, block, MS_BLOCK_SIZE);
-	memset (block, 0, MS_BLOCK_SIZE);
 
 	do {
 		empty = empty_blocks;
@@ -398,6 +389,24 @@ ms_free_block (MSBlockInfo *info)
 	} while (SGEN_CAS_PTR (&empty_blocks, block, empty) != empty);
 
 	SGEN_ATOMIC_ADD_P (num_empty_blocks, 1);
+}
+
+/*
+ * This doesn't actually free a block immediately, but enqueues it into the `empty_blocks`
+ * list, where it will either be freed later on, or reused in nursery collections.
+ */
+static void
+ms_free_block (MSBlockInfo *info)
+{
+	char *block = MS_BLOCK_FOR_BLOCK_INFO (info);
+
+	sgen_memgov_release_space (MS_BLOCK_SIZE, SPACE_MAJOR);
+	if (info->cardtable_mod_union)
+		sgen_card_table_free_mod_union (info->cardtable_mod_union, block, MS_BLOCK_SIZE);
+	/* FIXME: we don't always have to do this */
+	memset (block, 0, MS_BLOCK_SIZE);
+
+	add_block_to_empty_blocks (info);
 
 	binary_protocol_block_free (block, MS_BLOCK_SIZE);
 }
@@ -1871,6 +1880,21 @@ sgen_evacuation_freelist_blocks (MSBlockInfo * volatile *block_list, int size_in
 }
 
 static void
+wait_for_sweep_blocks (void)
+{
+	if (lazy_sweep && concurrent_sweep) {
+		/*
+		 * sweep_blocks_job is created before sweep_finish, which we wait for above
+		 * (major_finish_sweep_checking). After the end of sweep, if we don't have
+		 * sweep_blocks_job set, it means that it has already been run.
+		 */
+		SgenThreadPoolJob *job = sweep_blocks_job;
+		if (job)
+			sgen_thread_pool_job_wait (job);
+	}
+}
+
+static void
 major_start_major_collection (void)
 {
 	MSBlockInfo *block;
@@ -1892,16 +1916,7 @@ major_start_major_collection (void)
 		sgen_evacuation_freelist_blocks (&free_block_lists [MS_BLOCK_FLAG_REFS][i], i);
 	}
 
-	if (lazy_sweep && concurrent_sweep) {
-		/*
-		 * sweep_blocks_job is created before sweep_finish, which we wait for above
-		 * (major_finish_sweep_checking). After the end of sweep, if we don't have
-		 * sweep_blocks_job set, it means that it has already been run.
-		 */
-		SgenThreadPoolJob *job = sweep_blocks_job;
-		if (job)
-			sgen_thread_pool_job_wait (job);
-	}
+	wait_for_sweep_blocks ();
 
 	if (lazy_sweep && !concurrent_sweep)
 		binary_protocol_sweep_begin (GENERATION_OLD, TRUE);
@@ -1940,7 +1955,6 @@ major_finish_major_collection (ScannedObjectCounts *counts)
 #endif
 }
 
-#if SIZEOF_VOID_P != 8
 static int
 compare_pointers (const void *va, const void *vb) {
 	char *a = *(char**)va, *b = *(char**)vb;
@@ -1950,7 +1964,45 @@ compare_pointers (const void *va, const void *vb) {
 		return 1;
 	return 0;
 }
-#endif
+
+static void**
+gather_and_sort_empty_blocks (void)
+{
+	void **empty_block_arr;
+	int i;
+
+	empty_block_arr = (void**)sgen_alloc_internal_dynamic (sizeof (void*) * num_empty_blocks,
+			INTERNAL_MEM_MS_BLOCK_INFO_SORT, FALSE);
+	if (!empty_block_arr)
+		return NULL;
+
+	i = 0;
+	for (MSBlockInfo *block = empty_blocks; block; block = *(void**)block)
+		empty_block_arr [i++] = block;
+	SGEN_ASSERT (0, i == num_empty_blocks, "empty block count wrong");
+
+	sgen_qsort (empty_block_arr, num_empty_blocks, sizeof (void*), compare_pointers);
+
+	return empty_block_arr;
+}
+
+static void
+free_sorted_empty_blocks (void **empty_block_arr, size_t num_empty_blocks_orig)
+{
+	sgen_free_internal_dynamic (empty_block_arr, sizeof (void*) * num_empty_blocks_orig, INTERNAL_MEM_MS_BLOCK_INFO_SORT);
+}
+
+static void
+free_consecutive_blocks (void *first_block, size_t num_blocks)
+{
+	sgen_free_os_memory (first_block, MS_BLOCK_SIZE * num_blocks, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_MARKSWEEP);
+}
+
+static gboolean
+are_blocks_consecutive (void *first, void *second)
+{
+	return (char*)first + MS_BLOCK_SIZE == (char*)second;
+}
 
 /*
  * This is called with sweep completed and the world stopped.
@@ -2030,7 +2082,7 @@ major_free_swept_blocks (size_t allowance)
 
 				SGEN_ASSERT (6, first >= 0 && d > first, "algorithm is wrong");
 
-				if ((char*)block != ((char*)empty_block_arr [d-1]) + MS_BLOCK_SIZE) {
+				if (!are_blocks_consecutive (empty_block_arr [d-1], block)) {
 					first = d;
 					continue;
 				}
@@ -2044,7 +2096,7 @@ major_free_swept_blocks (size_t allowance)
 					 * we're iterating.
 					 */
 					int j;
-					sgen_free_os_memory (empty_block_arr [first], MS_BLOCK_SIZE * num_blocks, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_MARKSWEEP);
+					free_consecutive_blocks (empty_block_arr [first], num_blocks);
 					for (j = first; j <= d; ++j)
 						empty_block_arr [j] = NULL;
 					dest = first;
@@ -2079,7 +2131,7 @@ major_free_swept_blocks (size_t allowance)
 		*rebuild_next = NULL;
 
 		/* free array */
-		sgen_free_internal_dynamic (empty_block_arr, sizeof (void*) * num_empty_blocks_orig, INTERNAL_MEM_MS_BLOCK_INFO_SORT);
+		free_sorted_empty_blocks (empty_block_arr, num_empty_blocks_orig);
 	}
 
 	SGEN_ASSERT (0, num_empty_blocks >= 0, "we freed more blocks than we had in the first place?");
@@ -2095,7 +2147,7 @@ major_free_swept_blocks (size_t allowance)
 
 	while (num_empty_blocks > section_reserve) {
 		void *next = *(void**)empty_blocks;
-		sgen_free_os_memory (empty_blocks, MS_BLOCK_SIZE, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_MARKSWEEP);
+		free_consecutive_blocks (empty_blocks, 1);
 		empty_blocks = next;
 		/*
 		 * Needs not be atomic because this is running
@@ -2547,7 +2599,36 @@ update_cardtable_mod_union (void)
 	} END_FOREACH_BLOCK_NO_LOCK;
 }
 
+/* FIXME: why is this here? */
 #undef pthread_create
+
+static void
+major_shutdown (char *nursery_start, mword nursery_size)
+{
+	MSBlockInfo *block;
+	void **empty_block_arr;
+	int first, i;
+
+	major_finish_sweep_checking ();
+	wait_for_sweep_blocks ();
+
+	FOREACH_BLOCK_NO_LOCK(block) {
+		add_block_to_empty_blocks (block);
+	} END_FOREACH_BLOCK_NO_LOCK;
+
+	empty_block_arr = gather_and_sort_empty_blocks ();
+	first = 0;
+	for (i = 1; i < num_empty_blocks; ++i) {
+		if (are_blocks_consecutive (empty_block_arr [i-1], empty_block_arr [i]))
+			continue;
+		free_consecutive_blocks (empty_block_arr [first], i - first);
+		first = i;
+	}
+	free_consecutive_blocks (empty_block_arr [first], i - first);
+	free_sorted_empty_blocks (empty_block_arr, num_empty_blocks);
+
+	sgen_free_os_memory (nursery_start, nursery_size, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_NURSERY);
+}
 
 static void
 post_param_init (SgenMajorCollector *collector)
@@ -2651,6 +2732,8 @@ sgen_marksweep_init_internal (SgenMajorCollector *collector, gboolean is_concurr
 	collector->is_valid_object = major_is_valid_object;
 	collector->describe_pointer = major_describe_pointer;
 	collector->count_cards = major_count_cards;
+
+	collector->shutdown = major_shutdown;
 
 	collector->major_ops_serial.copy_or_mark_object = major_copy_or_mark_object_canonical;
 	collector->major_ops_serial.scan_object = major_scan_object_with_evacuation;

@@ -926,7 +926,6 @@ mono_gc_cleanup (void)
 			g_assert (finalizer_thread_exited);
 		}
 		gc_thread = NULL;
-		mono_gc_base_cleanup ();
 	}
 
 	mono_reference_queue_cleanup ();

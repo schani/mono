@@ -610,4 +610,14 @@ sgen_card_table_init (SgenRememberedSet *remset)
 	need_mod_union = sgen_get_major_collector ()->is_concurrent;
 }
 
+void
+sgen_card_table_shutdown (void)
+{
+	sgen_free_os_memory (sgen_cardtable, CARD_COUNT_IN_BYTES, (SgenAllocFlags)SGEN_ALLOC_INTERNAL, MONO_MEM_ACCOUNT_SGEN_CARD_TABLE);
+
+#ifdef SGEN_HAVE_OVERLAPPING_CARDS
+	sgen_free_os_memory (sgen_shadow_cardtable, CARD_COUNT_IN_BYTES, (SgenAllocFlags)SGEN_ALLOC_INTERNAL, MONO_MEM_ACCOUNT_SGEN_SHADOW_CARD_TABLE);
+#endif
+}
+
 #endif /*HAVE_SGEN_GC*/

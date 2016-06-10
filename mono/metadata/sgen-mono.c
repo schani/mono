@@ -47,6 +47,8 @@ gboolean sgen_mono_xdomain_checks = FALSE;
 /* Functions supplied by the runtime to be called by the GC */
 static MonoGCCallbacks gc_callbacks;
 
+static gboolean gc_inited;
+
 #ifdef HAVE_KW_THREAD
 __thread SgenThreadInfo *sgen_thread_info;
 #else
@@ -833,6 +835,13 @@ mono_gc_clear_domain (MonoDomain * domain)
 {
 	LOSObject *bigobj, *prev;
 	int i;
+
+	/*
+	  * Mono shutdown calls this after shutting down the GC.  In that case there's
+	  * nothing to clear anymore.
+	  */
+	if (!gc_inited)
+		return;
 
 	LOCK_GC;
 
@@ -2952,8 +2961,6 @@ sgen_client_describe_invalid_pointer (GCObject *ptr)
 	sgen_bridge_describe_pointer (ptr);
 }
 
-static gboolean gc_inited;
-
 void
 mono_gc_base_init (void)
 {
@@ -2989,7 +2996,8 @@ mono_gc_base_init (void)
 void
 mono_gc_base_cleanup (void)
 {
-	sgen_thread_pool_shutdown ();
+	gc_inited = FALSE;
+	sgen_gc_shutdown ();
 }
 
 gboolean

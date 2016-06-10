@@ -3140,6 +3140,16 @@ sgen_gc_init (void)
 	gc_initialized = 1;
 }
 
+void
+sgen_gc_shutdown (void)
+{
+	sgen_nursery_allocator_shutdown ();
+	major_collector.shutdown (nursery_section->data, nursery_section->size);
+	sgen_los_shutdown ();
+	sgen_card_table_shutdown ();
+	sgen_thread_pool_shutdown ();
+}
+
 NurseryClearPolicy
 sgen_get_nursery_clear_policy (void)
 {

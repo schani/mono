@@ -4057,6 +4057,8 @@ mini_cleanup (MonoDomain *domain)
 	mono_domain_free (domain, TRUE);
 #endif
 
+	mono_gc_base_cleanup ();
+
 #ifdef ENABLE_LLVM
 	if (mono_use_llvm)
 		mono_llvm_cleanup ();

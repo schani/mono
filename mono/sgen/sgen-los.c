@@ -308,6 +308,15 @@ free_los_section_memory (LOSObject *obj, size_t size)
 	add_free_chunk ((LOSFreeChunks*)SGEN_ALIGN_DOWN_TO ((mword)obj, LOS_CHUNK_SIZE), size);
 }
 
+static void
+free_non_section_object_memory (LOSObject *obj, size_t size)
+{
+	int pagesize = mono_pagesize ();
+	size += sizeof (LOSObject);
+	size = SGEN_ALIGN_UP_TO (size, pagesize);
+	sgen_free_os_memory ((gpointer)SGEN_ALIGN_DOWN_TO ((mword)obj, pagesize), size, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_LOS);
+}
+
 void
 sgen_los_free_object (LOSObject *obj)
 {
@@ -326,10 +335,7 @@ sgen_los_free_object (LOSObject *obj)
 	free (obj);
 #else
 	if (size > LOS_SECTION_OBJECT_LIMIT) {
-		int pagesize = mono_pagesize ();
-		size += sizeof (LOSObject);
-		size = SGEN_ALIGN_UP_TO (size, pagesize);
-		sgen_free_os_memory ((gpointer)SGEN_ALIGN_DOWN_TO ((mword)obj, pagesize), size, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_LOS);
+		free_non_section_object_memory (obj, size);
 		los_memory_usage_total -= size;
 		sgen_memgov_release_space (size, SPACE_LOS);
 	} else {
@@ -743,6 +749,27 @@ sgen_los_mark_mod_union_card (GCObject *mono_obj, void **ptr)
 	size_t offset = sgen_card_table_get_card_offset ((char*)ptr, (char*)sgen_card_table_align_pointer((char*)mono_obj));
 	SGEN_ASSERT (0, mod_union, "FIXME: optionally allocate the mod union if it's not here and CAS it in.");
 	mod_union [offset] = 1;
+}
+
+void
+sgen_los_shutdown (void)
+{
+	LOSObject *obj;
+	LOSSection *section;
+
+	for (obj = los_object_list; obj; obj = obj->next) {
+		size_t size = sgen_los_object_size (obj);
+		if (size > LOS_SECTION_OBJECT_LIMIT)
+			continue;
+		free_non_section_object_memory (obj, size);
+	}
+
+	section = los_sections;
+	while (section) {
+		LOSSection *next = section->next;
+		sgen_free_os_memory (section, LOS_SECTION_SIZE, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_LOS);
+		section = next;
+	}
 }
 
 #endif /* HAVE_SGEN_GC */

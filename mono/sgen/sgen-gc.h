@@ -275,6 +275,7 @@ enum {
 };
 
 void sgen_gc_init (void);
+void sgen_gc_shutdown (void);
 
 void sgen_os_init (void);
 
@@ -660,6 +661,8 @@ struct _SgenMajorCollector {
 	guint8* (*get_cardtable_mod_union_for_reference) (char *object);
 	long long (*get_and_reset_num_major_objects_marked) (void);
 	void (*count_cards) (long long *num_total_cards, long long *num_marked_cards);
+
+	void (*shutdown) (char *nursery_start, mword nursery_size);
 };
 
 extern SgenMajorCollector major_collector;
@@ -860,6 +863,7 @@ mword sgen_los_object_size (LOSObject *obj);
 void sgen_los_pin_object (GCObject *obj);
 gboolean sgen_los_object_is_pinned (GCObject *obj);
 void sgen_los_mark_mod_union_card (GCObject *mono_obj, void **ptr);
+void sgen_los_shutdown (void);
 
 
 /* nursery allocator */
@@ -869,6 +873,7 @@ void sgen_nursery_allocator_prepare_for_pinning (void);
 void sgen_nursery_allocator_set_nursery_bounds (char *nursery_start, char *nursery_end);
 mword sgen_build_nursery_fragments (GCMemSection *nursery_section, SgenGrayQueue *unpin_queue);
 void sgen_init_nursery_allocator (void);
+void sgen_nursery_allocator_shutdown (void);
 void sgen_nursery_allocator_init_heavy_stats (void);
 void sgen_init_allocator (void);
 char* sgen_nursery_alloc_get_upper_alloc_bound (void);

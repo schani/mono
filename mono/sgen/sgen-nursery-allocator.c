@@ -884,6 +884,14 @@ sgen_init_nursery_allocator (void)
 }
 
 void
+sgen_nursery_allocator_shutdown (void)
+{
+#ifdef NALLOC_DEBUG
+	sgen_free_os_memory (alloc_records, sizeof (AllocRecord) * ALLOC_RECORD_COUNT, SGEN_ALLOC_INTERNAL);
+#endif
+}
+
+void
 sgen_nursery_alloc_prepare_for_minor (void)
 {
 	sgen_minor_collector.prepare_to_space (sgen_space_bitmap, sgen_space_bitmap_size);
