@@ -308,6 +308,17 @@ sgen_section_gray_queue_init (SgenSectionGrayQueue *queue, gboolean locked, Gray
 #endif
 }
 
+void
+sgen_section_gray_queue_free (SgenSectionGrayQueue *queue)
+{
+	GrayQueueSection *section = queue->first;
+	while (section) {
+		GrayQueueSection *next = section->next;
+		sgen_free_internal (section, INTERNAL_MEM_GRAY_QUEUE);
+		section = next;
+	}
+}
+
 gboolean
 sgen_section_gray_queue_is_empty (SgenSectionGrayQueue *queue)
 {

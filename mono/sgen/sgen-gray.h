@@ -145,6 +145,7 @@ void sgen_section_gray_queue_init (SgenSectionGrayQueue *queue, gboolean locked,
 gboolean sgen_section_gray_queue_is_empty (SgenSectionGrayQueue *queue);
 GrayQueueSection* sgen_section_gray_queue_dequeue (SgenSectionGrayQueue *queue);
 void sgen_section_gray_queue_enqueue (SgenSectionGrayQueue *queue, GrayQueueSection *section);
+void sgen_section_gray_queue_free (SgenSectionGrayQueue *queue);
 
 gboolean sgen_gray_object_fill_prefetch (SgenGrayQueue *queue);
 

@@ -379,6 +379,12 @@ init_nursery (SgenFragmentAllocator *allocator, char *start, char *end)
 	region_age = (char *)g_malloc0 (region_age_size);
 }
 
+static void
+shutdown_nursery (void)
+{
+	sgen_fragment_allocator_release (&collector_allocator);
+}
+
 static gboolean
 handle_gc_param (const char *opt)
 {
@@ -439,6 +445,7 @@ sgen_split_nursery_init (SgenMinorCollector *collector)
 	collector->build_fragments_release_exclude_head = build_fragments_release_exclude_head;
 	collector->build_fragments_finish = build_fragments_finish;
 	collector->init_nursery = init_nursery;
+	collector->shutdown_nursery = shutdown_nursery;
 	collector->handle_gc_param = handle_gc_param;
 	collector->print_gc_param_usage = print_gc_param_usage;
 

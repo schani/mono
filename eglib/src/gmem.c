@@ -36,6 +36,7 @@ volatile gint64 mono_stat_malloc_memory = 0;
 #include <inttypes.h>
 #include <pthread.h>
 
+#if 0
 typedef struct {
 	gpointer address;
 	gsize size;
@@ -131,6 +132,22 @@ mono_allog_free (const gpointer address, const gsize size)
 	allog_remove (address);
 	pthread_mutex_unlock (&allog_lock);
 }
+#else
+static void
+log_init (void)
+{
+}
+
+void
+log_alloc (const gpointer address, const gsize size)
+{
+}
+
+static void
+log_free (const gpointer address, const gsize size)
+{
+}
+#endif
 
 #else
 

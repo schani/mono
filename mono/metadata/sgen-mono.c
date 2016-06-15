@@ -2996,8 +2996,17 @@ mono_gc_base_init (void)
 void
 mono_gc_base_cleanup (void)
 {
+	EphemeronLinkNode *node;
+
 	gc_inited = FALSE;
 	sgen_gc_shutdown ();
+
+	node = ephemeron_list;
+	while (node) {
+		EphemeronLinkNode *next = node->next;
+		sgen_free_internal (node, INTERNAL_MEM_EPHEMERON_LINK);
+		node = next;
+	}
 }
 
 gboolean

@@ -366,4 +366,10 @@ sgen_init_descriptors (void)
 #endif
 }
 
+void
+sgen_descriptors_shutdown (void)
+{
+	sgen_array_list_free (&complex_descriptors);
+}
+
 #endif

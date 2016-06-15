@@ -91,6 +91,7 @@ static volatile size_t allocation_count [MONO_MEM_ACCOUNT_MAX];
 static void
 account_mem (MonoMemAccountType type, ssize_t size)
 {
+	g_assert (!(size % 4096));
 #if SIZEOF_VOID_P == 4
 	InterlockedAdd ((volatile gint32*)&allocation_count [type], (gint32)size);
 #else
@@ -118,6 +119,14 @@ mono_mem_account_type_name (MonoMemAccountType type)
 	};
 
 	return names [type];
+}
+
+void
+mono_mem_account_log (void)
+{
+	g_print ("\n");
+	for (int i = 0; i < MONO_MEM_ACCOUNT_MAX; ++i)
+		g_print ("%-25s: %9zdkB\n", mono_mem_account_type_name (i), allocation_count [i] / 1024);
 }
 
 void

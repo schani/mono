@@ -886,9 +886,23 @@ sgen_init_nursery_allocator (void)
 void
 sgen_nursery_allocator_shutdown (void)
 {
+	SgenFragment *fragment;
+
 #ifdef NALLOC_DEBUG
 	sgen_free_os_memory (alloc_records, sizeof (AllocRecord) * ALLOC_RECORD_COUNT, SGEN_ALLOC_INTERNAL);
 #endif
+
+	sgen_fragment_allocator_release (&mutator_allocator);
+	/* This will release all additional fragments onto the free list. */
+	if (sgen_minor_collector.shutdown_nursery)
+		sgen_minor_collector.shutdown_nursery ();
+
+	fragment = fragment_freelist;
+	while (fragment) {
+		SgenFragment *next = fragment->next_in_order;
+		sgen_free_internal (fragment, INTERNAL_MEM_FRAGMENT);
+		fragment = next;
+	}
 }
 
 void

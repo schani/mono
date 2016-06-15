@@ -18,6 +18,7 @@ struct _WorkerData {
 };
 
 void sgen_workers_init (int num_workers);
+void sgen_workers_shutdown (void);
 void sgen_workers_stop_all_workers (void);
 void sgen_workers_start_all_workers (SgenObjectOperations *object_ops, SgenThreadPoolJob *finish_job);
 void sgen_workers_ensure_awake (void);

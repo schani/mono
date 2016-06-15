@@ -24,7 +24,7 @@ static mono_cond_t done_cond;
 static MonoNativeThreadId thread;
 
 /* Only accessed with the lock held. */
-static SgenPointerQueue job_queue;
+static SgenPointerQueue job_queue = SGEN_POINTER_QUEUE_INIT (INTERNAL_MEM_THREAD_POOL_JOB);
 
 static SgenThreadPoolThreadInitFunc thread_init_func;
 static SgenThreadPoolIdleJobFunc idle_job_func;
@@ -182,6 +182,8 @@ sgen_thread_pool_shutdown (void)
 	mono_os_mutex_destroy (&lock);
 	mono_os_cond_destroy (&work_cond);
 	mono_os_cond_destroy (&done_cond);
+
+	sgen_pointer_queue_free (&job_queue);
 }
 
 SgenThreadPoolJob*

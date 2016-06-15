@@ -210,4 +210,20 @@ sgen_array_list_find (SgenArrayList *array, gpointer ptr)
 	return (guint32)-1;
 }
 
+void
+sgen_array_list_free (SgenArrayList *array)
+{
+	int i;
+	for (i = 0; i < SGEN_ARRAY_LIST_BUCKETS; ++i) {
+		if (!array->entries [i])
+			continue;
+		if (array->mem_type != -1) {
+			size_t size = sgen_array_list_bucket_size (i) * sizeof (**array->entries);
+			sgen_free_internal_dynamic (array->entries [i], size, array->mem_type);
+		} else {
+			g_free (array->entries [i]);
+		}
+	}
+}
+
 #endif

@@ -188,7 +188,7 @@ static gboolean concurrent_sweep = TRUE;
 #define BLOCK_TAG(bl)				((bl)->has_references ? BLOCK_TAG_HAS_REFERENCES ((bl)) : (bl))
 
 /* all allocated blocks in the system */
-static SgenArrayList allocated_blocks = SGEN_ARRAY_LIST_INIT (NULL, NULL, NULL, INTERNAL_MEM_PIN_QUEUE);
+static SgenArrayList allocated_blocks = SGEN_ARRAY_LIST_INIT (NULL, NULL, NULL, INTERNAL_MEM_MS_TABLES);
 
 /* non-allocated block free-list */
 static void *empty_blocks = NULL;
@@ -2613,6 +2613,8 @@ major_shutdown (char *nursery_start, mword nursery_size)
 	wait_for_sweep_blocks ();
 
 	FOREACH_BLOCK_NO_LOCK(block) {
+		if (block->cardtable_mod_union)
+			sgen_card_table_free_mod_union (block->cardtable_mod_union, MS_BLOCK_FOR_BLOCK_INFO (block), MS_BLOCK_SIZE);
 		add_block_to_empty_blocks (block);
 	} END_FOREACH_BLOCK_NO_LOCK;
 
@@ -2627,7 +2629,18 @@ major_shutdown (char *nursery_start, mword nursery_size)
 	free_consecutive_blocks (empty_block_arr [first], i - first);
 	free_sorted_empty_blocks (empty_block_arr, num_empty_blocks);
 
+	sgen_array_list_free (&allocated_blocks);
+
 	sgen_free_os_memory (nursery_start, nursery_size, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_NURSERY);
+
+	sgen_free_internal_dynamic (block_obj_sizes, sizeof (int) * num_block_obj_sizes, INTERNAL_MEM_MS_TABLES);
+	sgen_free_internal_dynamic (evacuate_block_obj_sizes, sizeof (gboolean) * num_block_obj_sizes, INTERNAL_MEM_MS_TABLES);
+	sgen_free_internal_dynamic (sweep_slots_available, sizeof (size_t) * num_block_obj_sizes, INTERNAL_MEM_MS_TABLES);
+	sgen_free_internal_dynamic (sweep_slots_used, sizeof (size_t) * num_block_obj_sizes, INTERNAL_MEM_MS_TABLES);
+	sgen_free_internal_dynamic (sweep_num_blocks, sizeof (size_t) * num_block_obj_sizes, INTERNAL_MEM_MS_TABLES);
+
+	for (i = 0; i < MS_BLOCK_TYPE_MAX; ++i)
+		sgen_free_internal_dynamic (free_block_lists [i], sizeof (MSBlockInfo*) * num_block_obj_sizes, INTERNAL_MEM_MS_TABLES);
 }
 
 static void

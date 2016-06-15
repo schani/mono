@@ -287,6 +287,7 @@ void sgen_conservatively_pin_objects_from (void **start, void **end, void *start
 
 /* Keep in sync with description_for_type() in sgen-internal.c! */
 enum {
+	INTERNAL_MEM_INVALID,
 	INTERNAL_MEM_PIN_QUEUE,
 	INTERNAL_MEM_FRAGMENT,
 	INTERNAL_MEM_SECTION,
@@ -544,6 +545,7 @@ typedef struct {
 	void (*build_fragments_release_exclude_head) (void);
 	void (*build_fragments_finish) (SgenFragmentAllocator *allocator);
 	void (*init_nursery) (SgenFragmentAllocator *allocator, char *start, char *end);
+	void (*shutdown_nursery) (void);
 
 	gboolean (*handle_gc_param) (const char *opt); /* Optional */
 	void (*print_gc_param_usage) (void); /* Optional */
@@ -767,6 +769,7 @@ sgen_safe_object_get_size_unaligned (GCObject *obj)
 gboolean sgen_object_is_live (GCObject *obj);
 
 void  sgen_init_fin_weak_hash (void);
+void sgen_fin_weak_hash_shutdown (void);
 
 /* FIXME: move the toggleref stuff out of here */
 void sgen_mark_togglerefs (char *start, char *end, ScanCopyContext ctx);

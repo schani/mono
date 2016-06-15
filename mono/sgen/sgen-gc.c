@@ -2056,6 +2056,9 @@ major_finish_collection (const char *reason, gboolean is_overflow, size_t old_ne
 	//consistency_check ();
 
 	binary_protocol_collection_end (gc_stats.major_gc_count - 1, GENERATION_OLD, counts.num_scanned_objects, counts.num_unique_scanned_objects);
+
+	sgen_report_internal_mem_usage ();
+	mono_mem_account_log ();
 }
 
 static gboolean
@@ -3143,11 +3146,30 @@ sgen_gc_init (void)
 void
 sgen_gc_shutdown (void)
 {
-	sgen_nursery_allocator_shutdown ();
 	major_collector.shutdown (nursery_section->data, nursery_section->size);
+
+	sgen_nursery_allocator_shutdown ();
+	sgen_free_internal_dynamic (nursery_section->scan_starts, sizeof (char*) * nursery_section->num_scan_start, INTERNAL_MEM_SCAN_STARTS);
+	sgen_free_internal (nursery_section, INTERNAL_MEM_SECTION);
+
 	sgen_los_shutdown ();
 	sgen_card_table_shutdown ();
+	sgen_workers_shutdown ();
 	sgen_thread_pool_shutdown ();
+	sgen_memgov_shutdown ();
+	sgen_fin_weak_hash_shutdown ();
+	sgen_pinning_shutdown ();
+	sgen_descriptors_shutdown ();
+
+	sgen_pointer_queue_free (&fin_ready_queue);
+	sgen_pointer_queue_free (&critical_fin_queue);
+
+	for (int i = 0; i < ROOT_TYPE_NUM; ++i)
+		sgen_hash_table_clean (&roots_hash [i]);
+
+	sgen_gray_object_queue_deinit (&gray_queue);
+
+	sgen_report_internal_mem_usage ();
 }
 
 NurseryClearPolicy

@@ -507,4 +507,11 @@ sgen_memgov_init (size_t max_heap, size_t soft_limit, gboolean debug_allowance, 
 		save_target_ratio = save_target;
 }
 
+void
+sgen_memgov_shutdown (void)
+{
+	sgen_pointer_queue_free (&log_entries);
+	// FIXME: free mutex
+}
+
 #endif

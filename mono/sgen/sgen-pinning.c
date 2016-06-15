@@ -19,13 +19,13 @@
 #include "mono/sgen/sgen-pointer-queue.h"
 #include "mono/sgen/sgen-client.h"
 
-static SgenPointerQueue pin_queue;
+static SgenPointerQueue pin_queue = SGEN_POINTER_QUEUE_INIT(INTERNAL_MEM_PIN_QUEUE);
 static size_t last_num_pinned = 0;
 /*
  * While we hold the pin_queue_mutex, all objects in pin_queue_objs will
  * stay pinned, which means they can't move, therefore they can be scanned.
  */
-static SgenPointerQueue pin_queue_objs;
+static SgenPointerQueue pin_queue_objs = SGEN_POINTER_QUEUE_INIT(INTERNAL_MEM_PIN_QUEUE);
 static mono_mutex_t pin_queue_mutex;
 
 #define PIN_HASH_SIZE 1024
@@ -38,11 +38,18 @@ sgen_pinning_init (void)
 }
 
 void
+sgen_pinning_shutdown (void)
+{
+	sgen_pointer_queue_free (&pin_queue);
+	sgen_pointer_queue_free (&pin_queue_objs);
+	// FIXME: free mutex
+}
+
+void
 sgen_init_pinning (void)
 {
 	mono_os_mutex_lock (&pin_queue_mutex);
 	memset (pin_hash_filter, 0, sizeof (pin_hash_filter));
-	pin_queue.mem_type = INTERNAL_MEM_PIN_QUEUE;
 	sgen_pointer_queue_clear (&pin_queue_objs);
 }
 

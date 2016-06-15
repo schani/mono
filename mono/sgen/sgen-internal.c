@@ -83,13 +83,16 @@ index_for_size (size_t size)
  * type is dynamic.
  */
 static int fixed_type_allocator_indexes [INTERNAL_MEM_MAX];
+#ifdef HEAVY_STATISTICS
+static volatile size_t type_allocation_counts [INTERNAL_MEM_MAX];
+#endif
 
 void
 sgen_register_fixed_internal_mem_type (int type, size_t size)
 {
 	int slot;
 
-	g_assert (type >= 0 && type < INTERNAL_MEM_MAX);
+	g_assert (type > INTERNAL_MEM_INVALID && type < INTERNAL_MEM_MAX);
 	g_assert (size <= allocator_sizes [NUM_ALLOCATORS - 1]);
 
 	slot = index_for_size (size);
@@ -105,6 +108,7 @@ static const char*
 description_for_type (int type)
 {
 	switch (type) {
+	case INTERNAL_MEM_INVALID: return "invalid";
 	case INTERNAL_MEM_PIN_QUEUE: return "pin-queue";
 	case INTERNAL_MEM_FRAGMENT: return "fragment";
 	case INTERNAL_MEM_SECTION: return "section";
@@ -156,6 +160,8 @@ sgen_alloc_internal_dynamic (size_t size, int type, gboolean assert_on_failure)
 	int index;
 	void *p;
 
+	SGEN_ASSERT (0, type != INTERNAL_MEM_INVALID, "Why don't we pass a valid mem type?");
+
 	if (size > allocator_sizes [NUM_ALLOCATORS - 1]) {
 		p = sgen_alloc_os_memory (size, (SgenAllocFlags)(SGEN_ALLOC_INTERNAL | SGEN_ALLOC_ACTIVATE), NULL, MONO_MEM_ACCOUNT_SGEN_INTERNAL);
 		if (!p)
@@ -175,12 +181,17 @@ sgen_alloc_internal_dynamic (size_t size, int type, gboolean assert_on_failure)
 			sgen_assert_memory_alloc (NULL, size, description_for_type (type));
 		memset (p, 0, size);
 	}
+#ifdef HEAVY_STATISTICS
+	++type_allocation_counts [type];
+#endif
 	return p;
 }
 
 void
 sgen_free_internal_dynamic (void *addr, size_t size, int type)
 {
+	SGEN_ASSERT (0, type != INTERNAL_MEM_INVALID, "Why don't we pass a valid mem type?");
+
 	if (!addr)
 		return;
 
@@ -195,6 +206,9 @@ sgen_free_internal_dynamic (void *addr, size_t size, int type)
 		-- allocator_sizes_stats [index_for_size (size)];
 #endif
 	}
+#ifdef HEAVY_STATISTICS
+	--type_allocation_counts [type];
+#endif
 }
 
 void*
@@ -203,11 +217,14 @@ sgen_alloc_internal (int type)
 	int index, size;
 	void *p;
 
+	SGEN_ASSERT (0, type != INTERNAL_MEM_INVALID, "Why don't we pass a valid mem type?");
+
 	index = fixed_type_allocator_indexes [type];
 	g_assert (index >= 0 && index < NUM_ALLOCATORS);
 
 #ifdef HEAVY_STATISTICS
 	++ allocator_sizes_stats [index];
+	++type_allocation_counts [type];
 #endif
 
 	size = allocator_sizes [index];
@@ -223,6 +240,8 @@ sgen_free_internal (void *addr, int type)
 {
 	int index;
 
+	SGEN_ASSERT (0, type != INTERNAL_MEM_INVALID, "Why don't we pass a valid mem type?");
+
 	if (!addr)
 		return;
 
@@ -233,6 +252,7 @@ sgen_free_internal (void *addr, int type)
 
 #ifdef HEAVY_STATISTICS
 	-- allocator_sizes_stats [index];
+	--type_allocation_counts [type];
 #endif
 }
 
@@ -257,9 +277,15 @@ sgen_report_internal_mem_usage (void)
 	int i G_GNUC_UNUSED;
 #ifdef HEAVY_STATISTICS
 	printf ("size -> # allocations\n");
-	for (i = 0; i < NUM_ALLOCATORS; ++i)
-		printf ("%d -> %d\n", allocator_sizes [i], allocator_sizes_stats [i]);
+	for (i = 0; i < NUM_ALLOCATORS; ++i) {
+		if (allocator_sizes_stats [i])
+			printf ("%d -> %d\n", allocator_sizes [i], allocator_sizes_stats [i]);
+	}
 	printf ("direct allocated bytes: %zd\n", stat_direct_allocated);
+	for (i = 0; i < INTERNAL_MEM_MAX; ++i) {
+		if (type_allocation_counts [i])
+			printf ("%s -> %zd\n", description_for_type (i), type_allocation_counts [i]);
+	}
 #endif
 }
 

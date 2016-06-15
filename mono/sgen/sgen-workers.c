@@ -281,6 +281,12 @@ sgen_workers_init (int num_workers)
 }
 
 void
+sgen_workers_shutdown (void)
+{
+	sgen_section_gray_queue_free (&workers_distribute_gray_queue);
+}
+
+void
 sgen_workers_stop_all_workers (void)
 {
 	preclean_job = NULL;

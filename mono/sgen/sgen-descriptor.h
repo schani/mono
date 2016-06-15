@@ -129,6 +129,7 @@ void* sgen_get_complex_descriptor_bitmap (SgenDescriptor desc);
 SgenUserRootMarkFunc sgen_get_user_descriptor_func (SgenDescriptor desc);
 
 void sgen_init_descriptors (void);
+void sgen_descriptors_shutdown (void);
 
 #ifdef HEAVY_STATISTICS
 void sgen_descriptor_count_scanned_object (SgenDescriptor desc);
