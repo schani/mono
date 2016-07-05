@@ -95,7 +95,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>$(MONO_DIR);$(MONO_INCLUDE_DIR);$(MONO_JIT_INCLUDE_DIR);$(MONO_LIBGC_SOURCE_DIR);$(MONO_EGLIB_SOURCE_DIR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MONO_DIR);$(MONO_INCLUDE_DIR);$(MONO_JIT_INCLUDE_DIR);$(MONO_LIBGC_SOURCE_DIR);$(MONO_EGLIB_SOURCE_DIR);c:\Users\Mark Probst\Source\Repos\coreclr\src\gc\env;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>true</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -110,7 +110,7 @@
     </ClCompile>
     <ProjectReference />
     <Link>
-      <AdditionalDependencies>eglib.lib;mono-2.0$(MONO_TARGET_SUFFIX).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>eglib.lib;mono-2.0$(MONO_TARGET_SUFFIX).lib;$(SolutionDir)$(Configuration)\GCSample.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
@@ -217,12 +217,18 @@
     <ClCompile Include="..\mono\mini\main.c" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\Users\Mark Probst\Source\Repos\coreclr\src\gc\sample\GCSample.vcxproj">
+      <Project>{58d6b7ae-0a12-49f0-bcf7-200ed8ba445a}</Project>
+    </ProjectReference>
     <ProjectReference Include="eglib.vcxproj">
       <Project>{158073ed-99ae-4196-9edc-ddb2344f8466}</Project>
     </ProjectReference>
     <ProjectReference Include="libmono.vcxproj">
       <Project>{cb0d9e92-293c-439c-9ac7-c5f59b6e0771}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Users\Mark Probst\Source\Repos\coreclr\src\gc\env\common.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

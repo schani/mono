@@ -140,6 +140,8 @@ doclose:
 
 #include <shellapi.h>
 
+extern int gcsample_main(void);
+
 int
 main (void)
 {
@@ -162,6 +164,8 @@ main (void)
 		char *entry = g_utf16_to_utf8 (szFileName, count, NULL, NULL, NULL);
 		probe_embedded (entry, &argc, &argv);
 	}
+
+	gcsample_main();
 
 	return mono_main_with_options  (argc, argv);
 }
